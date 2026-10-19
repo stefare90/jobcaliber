@@ -305,3 +305,14 @@ committing `config.yaml`.
   `master` -> `main`; root commit `20004b9` "chore: initial import of the jobcaliber
   pipeline skeleton" (54 files, 4704 insertions) pushed to
   https://github.com/stefare90/jobcaliber (public).
+- [x] S2 state of the art (2026-10-19) — `AIEngine.options` (provider knobs merged into the
+  LLM body, contract fields win, rejected for `decision` kind); `local_llm` switched from
+  `gpt-oss:20b` (44.5s/posting) to `qwen3:8b` with `reasoning_effort: none` (8.9s; with
+  thinking on it blew the 600s timeout without emitting JSON). `gemma4:26b` unusable on
+  this machine (`radv/amdgpu: Not enough memory`). `engine_benchmark.py` now dumps
+  `results-<engine>.json` (dataset_sha, limit, per-posting metrics); new standalone
+  `compare_benchmark.py` renders `comparison.md` and refuses to mix different datasets.
+  Same 20 postings, 4 engines: rizzo 4 PASS/7 REVIEW/DROP 9, stdev 25.1, 4.15s; jev 20 DROP,
+  0.38s; deepseek 20 DROP, 7.64s; qwen3 13 DROP/7 REVIEW, flat 7.5, 11.67s. jev and deepseek
+  agree on 100% of decisions. Sample is the first 20 by external_id (noise) -> latency and
+  plumbing only, not calibration. Tests 55/55 green.

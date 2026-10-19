@@ -7,6 +7,7 @@ Same input for every engine, so the leaderboards are comparable.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -23,6 +24,10 @@ from jobcaliber.scoring import Evaluator
 HERE = Path(__file__).resolve().parent
 INPUT_PATH = HERE / "input" / "postings.jsonl"
 OUTPUT_DIR = HERE / "output"
+
+
+def dataset_sha(path: Path = INPUT_PATH) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
 
 
 def load_postings(path: Path = INPUT_PATH) -> list[JobPosting]:
@@ -109,8 +114,49 @@ def render_report(
     return "\n".join(lines)
 
 
+def write_results(
+    engine_name: str, engine: AIEngine, results: list[tuple[JobPosting, object, object, float]],
+    total: float, failures: int, limit: int,
+) -> Path:
+    payload = {
+        "engine": engine_name,
+        "model": engine.model,
+        "api": engine.api,
+        "kind": engine.kind,
+        "base_url": engine.base_url,
+        "options": engine.options,
+        "dataset": INPUT_PATH.name,
+        "dataset_sha": dataset_sha(),
+        "limit": limit,
+        "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "total_s": round(total, 2),
+        "failures": failures,
+        "postings": [
+            {
+                "external_id": job.external_id,
+                "url": job.url,
+                "title": job.title,
+                "company": job.company,
+                "decision": ev.decision.value,
+                "score": ev.score_total,
+                "confidence": ev.confidence,
+                "core": ev.sub_scores.get("core"),
+                "tools": ev.sub_scores.get("tools"),
+                "contract": ev.sub_scores.get("contract"),
+                "pay": ev.sub_scores.get("pay"),
+                "location": s1.location_bucket.value,
+                "latency_s": round(dt, 2),
+            }
+            for job, s1, ev, dt in sorted(results, key=lambda t: t[0].external_id)
+        ],
+    }
+    path = OUTPUT_DIR / f"results-{engine_name}.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
 def run_engine(
-    engine_name: str, postings: list[JobPosting], config: AppConfig
+    engine_name: str, postings: list[JobPosting], config: AppConfig, limit: int
 ) -> tuple[Path, int, float]:
     ai = AIClients.from_config(config.ai, ROOT)
     engine = config.ai.engines[engine_name]
@@ -144,6 +190,8 @@ def run_engine(
     if results:
         report_path.write_text(render_report(engine_name, engine, results, total), encoding="utf-8")
         print(f"-> {report_path} ({total:.1f}s total, {total / len(results):.2f}s mean)")
+    results_path = write_results(engine_name, engine, results, total, failures, limit)
+    print(f"-> {results_path}")
     return report_path, failures, total
 
 
@@ -159,7 +207,7 @@ def main() -> int:
 
     postings = load_postings()[: args.limit]
     print(f"loaded {len(postings)} postings from {INPUT_PATH.relative_to(ROOT)}")
-    _, failures, _ = run_engine(args.engine, postings, config)
+    _, failures, _ = run_engine(args.engine, postings, config, args.limit)
     return 1 if failures else 0
 
 

@@ -185,3 +185,21 @@ def test_client_without_configured_headers_is_unchanged():
     engine = AIEngine(kind="llm", api="openai", base_url="http://x/v1", model="m")
     client = LLMClient(engine, httpx.Client())
     assert client.headers() == {"Content-Type": "application/json"}
+
+
+def test_llm_client_sends_configured_options_under_contract_fields():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    engine = AIEngine(
+        kind="llm", api="openai", base_url="http://x/v1", model="qwen3:8b",
+        options={"reasoning_effort": "none", "max_tokens": 400, "model": "should-not-win"},
+    )
+    LLMClient(engine, httpx.Client(transport=httpx.MockTransport(handler))).complete("q")
+
+    assert seen["reasoning_effort"] == "none"
+    assert seen["max_tokens"] == 400
+    assert seen["model"] == "qwen3:8b"

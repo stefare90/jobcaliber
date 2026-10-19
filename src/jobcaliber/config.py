@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -31,6 +32,7 @@ class AIEngine(BaseModel):
     api_key_env: str | None = None
     timeout_s: float = 120.0
     headers: dict[str, str] = Field(default_factory=dict)
+    options: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_kind_api(self) -> "AIEngine":
@@ -38,6 +40,11 @@ class AIEngine(BaseModel):
             raise ValueError(f"unknown engine kind '{self.kind}'; expected one of {sorted(KIND_APIS)}")
         if self.api not in KIND_APIS[self.kind]:
             raise ValueError(f"api '{self.api}' is not valid for kind '{self.kind}'; expected {sorted(KIND_APIS[self.kind])}")
+        if self.options and self.kind != "llm":
+            raise ValueError(
+                f"engine '{self.model}': 'options' is only valid for kind 'llm'; "
+                f"the systemone wire takes a fixed payload (state/model/questions)"
+            )
         return self
 
     def resolve_api_key(self) -> str:

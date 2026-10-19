@@ -92,7 +92,9 @@ ai:
       kind: "llm"
       api: "openai"
       base_url: "http://localhost:11434/v1"
-      model: "gpt-oss:20b"
+      model: "qwen3:8b"
+      # qwen3 chain-of-thought eats the whole output budget and never emits the JSON.
+      options: { reasoning_effort: "none" }
     opencode_llm:
       kind: "llm"
       api: "openai"

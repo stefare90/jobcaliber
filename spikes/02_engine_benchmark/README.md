@@ -18,6 +18,11 @@ uv run python spikes/02_engine_benchmark/engine_benchmark.py --engine jev --limi
 
 # deepseek (opencode-go, OpenAI wire)
 uv run python spikes/02_engine_benchmark/engine_benchmark.py --engine opencode_llm --limit 20
+uv run python spikes/02_engine_benchmark/engine_benchmark.py --engine local_llm --limit 20   # qwen3:8b
+
+# cross-engine report from every measured run (no re-scoring); optional engine subset
+uv run python spikes/02_engine_benchmark/compare_benchmark.py
+uv run python spikes/02_engine_benchmark/compare_benchmark.py rizzo jev
 ```
 
 `--engine` accepts any key of `ai.engines`, so new engines are benchmarked with zero code
@@ -34,11 +39,44 @@ changes. `--limit` caps the set size; default 20.
 
 - `output/report-<engine>.md` — pass/review/drop counts, latency (mean/min/max), full
   leaderboard, per-posting sub-scores and reasons.
-- `output/comparison.md` — cross-engine verdict kept by hand from the comparison round.
+- `output/results-<engine>.json` — machine-readable run: engine/model/options, `dataset_sha`,
+  `limit`, total time, failures, and one entry per posting (decision, score, confidence,
+  sub-scores, location bucket, latency). This is what `compare_benchmark.py` reads.
+- `output/comparison.md` — written by `compare_benchmark.py`: decision mix per engine,
+  mean score and `stdev` (discrimination), latency, per-posting decisions and a pairwise
+  agreement matrix.
+
+## compare_benchmark.py
+
+Standalone on purpose: the runner measures, the comparator reports. Re-render the
+comparison without re-scoring, and compare as soon as one more engine has been measured.
+It reads every `results-*.json` (or the engines you name) and **refuses to mix runs with a
+different `dataset_sha` or `limit`**, so an old 20-posting run can never be compared with
+a new 50-posting one.
 
 ## Verdict
 
-`jev` is the reference (fast, strict); `rizzo-flow` is the local default (better
-discrimination on the earlier sample, ~4.6× faster on the Radeon 760M via Vulkan than on
-CPU); laya was rejected (flat scores, 20/20 REVIEW). Numbers and caveats in
-`output/comparison.md`.
+20 postings, same set, `dataset_sha 518e3d8eb2ee6062`:
+
+| engine | model | PASS | REVIEW | DROP | mean | stdev | latency |
+|---|---|---|---|---|---|---|---|
+| `rizzo` | rizzo-latest | 4 | 7 | 9 | 47.6 | **25.1** | 4.19s |
+| `jev` | jev-1.13-free | 0 | 1 | 19 | 23.0 | 16.7 | **0.40s** |
+| `opencode_llm` | deepseek-v4.1-flash | 0 | 0 | 20 | 10.2 | 15.0 | 5.92s |
+| `local_llm` | qwen3:8b | 0 | 7 | 13 | 10.9 | 12.8 | 11.72s |
+
+- **`rizzo` is the only engine that discriminates** on this sample: 4 PASS, 7 REVIEW, and
+  the widest score spread.
+- **`jev` and `deepseek` are strict** (19-20 DROP out of 20) and score differently: near-zero
+  recall on this sample. `jev` flipped one posting between two identical runs (0 -> 1
+  REVIEW), so its decisions are not perfectly deterministic even at temperature 0.
+- **`qwen3:8b` is flat**: most postings land on `core=0, tools=0, contract=0, pay=0.5`
+  → a constant 7.5, plus implausible location buckets (`Roma` → `primary`). Usable as a
+  fast local fallback, not as a scorer.
+- `gemma4:26b` cannot run on this machine (`radv/amdgpu: Not enough memory`,
+  `ErrorDeviceLost`), so it was excluded from the comparison.
+
+**Caveat:** the 20 postings are the first 20 by `external_id`, i.e. an alphabetical slice
+of URLs, not a representative sample — mostly noise. Useful for latency and wire checks,
+not yet for calibration. The per-posting table links every ad, so a decision can be checked
+against the original text. Numbers in `output/comparison.md`.

@@ -19,7 +19,12 @@ class LLMClient(AIClient):
         ]
         return TransportRequest(
             path="/chat/completions",
-            payload={"model": self.engine.model, "messages": messages, "temperature": request.temperature},
+            payload={
+                **self.engine.options,
+                "model": self.engine.model,
+                "messages": messages,
+                "temperature": request.temperature,
+            },
         )
 
     def extract(self, data: dict) -> str:

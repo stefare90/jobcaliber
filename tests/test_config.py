@@ -119,3 +119,8 @@ def test_load_config_falls_back_to_example(tmp_path):
     path, cfg = load_config(tmp_path)
     assert path.name == "config.example.yaml"
     assert cfg.profile.location.primary == "X"
+
+
+def test_engine_options_rejected_outside_llm_kind():
+    with pytest.raises(ValueError, match="'options' is only valid for kind 'llm'"):
+        AIEngine(kind="decision", api="systemone", base_url="x", model="m", options={"seed": 1})

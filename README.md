@@ -75,14 +75,16 @@ Weights, thresholds and penalties all live in `config.yaml`. The five questions 
 
 | Engine | kind | api | Notes |
 |---|---|---|---|
-| `rizzo-flow` | `decision` | `systemone` | local default: Spark-4B + LoRA on llama.cpp, Vulkan iGPU |
-| `jev-1.13-free` | `decision` | `systemone` | cloud reference via opencode System One endpoint |
-| Ollama | `llm` | `openai` | local generative engine over `/v1` |
-| opencode-go | `llm` | `openai` | `deepseek-v4.1-flash`, needs `x-opencode-session` header |
+| `rizzo` | `decision` | `systemone` | local default: Spark-4B + LoRA on llama.cpp, Vulkan iGPU |
+| `jev` | `decision` | `systemone` | cloud reference via opencode System One endpoint |
+| `local_llm` | `llm` | `openai` | Ollama `qwen3:8b`, `reasoning_effort: none` |
+| `opencode_llm` | `llm` | `openai` | `deepseek-v4.1-flash`, needs `x-opencode-session` header |
 
 `kind` is the engine class (decision vs generative); `api` is the wire protocol. Products
-differ **only** by config (`base_url`, `model`, `api_key_env`, `headers`), so adding an
-engine is a config entry, never code. A role only accepts the kinds it can implement,
+differ **only** by config (`base_url`, `model`, `api_key_env`, `headers`, `options`), so
+adding an engine is a config entry, never code. `options` carries provider knobs merged
+into the request body (e.g. `reasoning_effort: none` for qwen3, `num_ctx`/`keep_alive` for
+Ollama); the contract fields `model`/`messages`/`temperature` always win. A role only accepts the kinds it can implement,
 validated at startup.
 
 ```bash
