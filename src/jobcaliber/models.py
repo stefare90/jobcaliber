@@ -38,7 +38,6 @@ class JobPosting:
 class Query:
     keywords: str
     location: str
-    location_raw: str
     role: str
     remote: bool = False
 

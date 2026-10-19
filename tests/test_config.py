@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from jobcaliber.config import AIConfig, AIEngine, AppConfig, JobFilters, LocationFilter, load_config
 
 FULL_YAML = """
-version: 9
+version: 10
 db_path: "./data/jobs.db"
 profile:
   titles: ["Software Engineer"]
@@ -13,7 +13,7 @@ profile:
   skills:
     core: { "c++": 5 }
     tools: ["Qt"]
-  location: { primary: "Sardegna", remote_ok: true, hybrid_max_km: 40 }
+  location: { primary: "Sardinia, Italy", remote_query: "Italy", hybrid_max_km: 40 }
 job_filters:
   core_skills: { mode: "weighted", weight: 45 }
   pay: { mode: "hybrid", weight: 15, target_annual: 40000, min_annual: 38000, hard_drop_tolerance: 0.05 }
@@ -23,7 +23,7 @@ notifications:
 scraping:
   boards: ["linkedin", "indeed"]
   hours_old: null
-  extra_searches: [{ keywords: "Backend Developer", location: "Italy" }]
+  board_max_results: { linkedin: 300, indeed: 500 }
 ai:
   engines:
     rizzo: { kind: "decision", api: "systemone", base_url: "http://127.0.0.1:8017", model: "rizzo-latest" }
@@ -36,17 +36,19 @@ ai:
 def test_app_config_parses_full_yaml():
     import yaml
     cfg = AppConfig.model_validate(yaml.safe_load(FULL_YAML))
-    assert cfg.version == 9
-    assert cfg.profile.location.primary == "Sardegna"
+    assert cfg.version == 10
+    assert cfg.profile.location.primary == "Sardinia, Italy"
+    assert cfg.profile.location.remote_query == "Italy"
     assert cfg.job_filters.pay.min_annual == 38000
-    assert cfg.scraping.extra_searches[0].keywords == "Backend Developer"
+    assert cfg.scraping.max_results("linkedin") == 300
+    assert cfg.scraping.max_results("indeed") == 500
     assert cfg.ai.engines["rizzo"].kind == "decision"
     assert cfg.ai.roles["scorer"] == "rizzo"
     assert cfg.ai.custom_prompts["explainer"] == "concise_it"
 
 
 def test_app_config_defaults():
-    cfg = AppConfig.model_validate({"profile": {"titles": ["Dev"], "location": {"primary": "Torino"}}})
+    cfg = AppConfig.model_validate({"profile": {"titles": ["Dev"], "location": {"primary": "Turin, Italy"}}})
     assert cfg.job_filters.core_skills.weight == 45
     assert cfg.ai.engines == {}
     assert cfg.ai.roles == {}
@@ -124,3 +126,16 @@ def test_load_config_falls_back_to_example(tmp_path):
 def test_engine_options_rejected_outside_llm_kind():
     with pytest.raises(ValueError, match="'options' is only valid for kind 'llm'"):
         AIEngine(kind="decision", api="systemone", base_url="x", model="m", options={"seed": 1})
+
+
+def test_board_max_results_rejects_unknown_board():
+    with pytest.raises(ValidationError, match="board_max_results names unknown boards"):
+        AppConfig.model_validate({
+            "profile": {"titles": ["Dev"], "location": {"primary": "Turin, Italy"}},
+            "scraping": {"boards": ["linkedin"], "board_max_results": {"linkedin": 300, "indeed": 500}},
+        })
+
+
+def test_remote_query_defaults_to_none():
+    cfg = AppConfig.model_validate({"profile": {"titles": ["Dev"], "location": {"primary": "Turin, Italy"}}})
+    assert cfg.profile.location.remote_query is None

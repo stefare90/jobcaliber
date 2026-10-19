@@ -61,17 +61,6 @@ def to_job_posting(board: str, search_id: str, row: dict) -> JobPosting:
     )
 
 
-def normalize_fetch_location(loc_raw: str) -> tuple[str, bool]:
-    loc_clean = loc_raw.strip()
-    low = loc_clean.lower()
-    is_remote = low.startswith("remote") or "remote" in low
-    if low in ("sardegna", "sardinia"):
-        return "Sardinia, Italy", False
-    if is_remote:
-        return "Italy", True
-    return loc_clean, False
-
-
 class Fetcher:
     def __init__(self, scraping: Scraping, scrape_fn=None, sleep_fn=time.sleep, on_page=None):
         self.scraping = scraping
@@ -88,26 +77,17 @@ class Fetcher:
     def page_size(self) -> int:
         return self.scraping.page_size
 
-    @property
-    def page_cap(self) -> int:
-        return self.scraping.page_cap
-
     def build_queries(self, profile: Profile) -> list[Query]:
-        locations = [profile.location.primary]
-        if profile.location.remote_ok and "remote" not in profile.location.primary.lower():
-            locations.append("Remote")
-
-        queries: list[Query] = []
-        for title in profile.titles:
-            for loc in locations:
-                fetch_loc, is_remote = normalize_fetch_location(loc)
-                queries.append(Query(keywords=title.strip(), location=fetch_loc,
-                                     location_raw=loc, role=title, remote=is_remote))
-
-        for extra in self.scraping.extra_searches:
-            fetch_loc, is_remote = normalize_fetch_location(extra.location)
-            queries.append(Query(keywords=extra.keywords.strip(), location=fetch_loc,
-                                 location_raw=extra.location, role=extra.keywords, remote=is_remote))
+        location = profile.location
+        queries = [
+            Query(keywords=title.strip(), location=location.primary, role=title, remote=False)
+            for title in profile.titles
+        ]
+        if location.remote_query:
+            queries += [
+                Query(keywords=title.strip(), location=location.remote_query, role=title, remote=True)
+                for title in profile.titles
+            ]
         return queries
 
     def _scrape(self, **kwargs):
@@ -116,6 +96,7 @@ class Fetcher:
     def fetch_board(self, query: Query, board: str, search_id: str) -> tuple[list[JobPosting], FetchStats]:
         stats = FetchStats()
         postings: list[JobPosting] = []
+        max_results = self.scraping.max_results(board)
         offset = 0
         while True:
             df = self.scrape_fn(
@@ -133,6 +114,7 @@ class Fetcher:
             )
             batch = len(df) if df is not None else 0
             stats.seen += batch
+            new_ids = 0
             if df is not None and batch > 0:
                 for _, r in df.iterrows():
                     row = {k: clean_value(v) for k, v in r.to_dict().items()}
@@ -145,8 +127,9 @@ class Fetcher:
                     if posting.external_id not in self.seen_ids:
                         self.seen_ids.add(posting.external_id)
                         stats.new += 1
+                        new_ids += 1
                     postings.append(posting)
-            if batch < self.page_size or stats.seen >= self.page_cap:
+            if batch < self.page_size or stats.seen >= max_results or new_ids == 0:
                 break
             offset += self.page_size
             if self.on_page is not None:

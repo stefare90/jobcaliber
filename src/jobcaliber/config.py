@@ -71,9 +71,17 @@ class AIConfig(BaseModel):
 
 
 class LocationPrefs(BaseModel):
+    """Query strings are passed to the boards verbatim: write them the way the board spells them."""
+
     primary: str
-    remote_ok: bool = True
+    remote_query: str | None = None
     hybrid_max_km: int = 40
+
+    @model_validator(mode="after")
+    def _normalize_remote_query(self) -> "LocationPrefs":
+        if self.remote_query is not None:
+            self.remote_query = self.remote_query.strip() or None
+        return self
 
 
 class Skills(BaseModel):
@@ -144,19 +152,25 @@ class Notifications(BaseModel):
     telegram: TelegramNotifications = Field(default_factory=TelegramNotifications)
 
 
-class ExtraSearch(BaseModel):
-    keywords: str
-    location: str = "Italy"
-
-
 class Scraping(BaseModel):
     boards: list[str] = Field(default_factory=lambda: ["linkedin", "indeed"])
     country: str = "italy"
     hours_old: int | None = None
     page_size: int = 50
-    page_cap: int = 100
+    board_max_results: dict[str, int] = Field(default_factory=lambda: {"linkedin": 300, "indeed": 500})
     job_type: str | None = "fulltime"
-    extra_searches: list[ExtraSearch] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_board_max_results(self) -> "Scraping":
+        unknown = set(self.board_max_results) - set(self.boards)
+        if unknown:
+            raise ValueError(f"board_max_results names unknown boards {sorted(unknown)}; boards are {sorted(self.boards)}")
+        return self
+
+    def max_results(self, board: str) -> int:
+        if board in self.board_max_results:
+            return self.board_max_results[board]
+        return max(self.board_max_results.values(), default=100)
 
 
 class Schedule(BaseModel):
@@ -165,7 +179,7 @@ class Schedule(BaseModel):
 
 
 class AppConfig(BaseModel):
-    version: int = 9
+    version: int = 10
     db_path: str = "./data/jobs.db"
     profile: Profile
     job_filters: JobFilters = Field(default_factory=JobFilters)

@@ -35,7 +35,8 @@ report real numbers in their own README.
 ## How it works (pipeline, fixed order)
 
 1. **Fetch** (`ingestion/fetch.py`) — JobSpy boards (LinkedIn, Indeed), queries built from
-   `profile.titles × preferred_locations`, paginated with `page_size`/`page_cap`, rate
+   `profile.titles × query locations`, paginated with `page_size` up to
+   `board_max_results[board]`, stopping early when a page adds no new posting; rate
    limited, captchas never stored, `NaN → None`. No gates, no scoring here. Max 2-4
    runs/day + jitter/backoff.
 2. **Dedup** — normalized URL (strip `/apply|/application|/thanks`, tracking params,
@@ -182,24 +183,26 @@ uv run python -m app --check          # skeleton + healthcheck
 uv run python -m app run              # fetch -> score -> evaluate -> notify
 ```
 
-Queries are generated from the profile (`titles × [primary_location, Remote]`);
-`extra_searches` is an escape hatch only, default empty.
+Queries are generated from the profile: `titles × locations`, where `locations` is
+`[primary]` plus `[remote_query]` when that field is set. Location strings are passed to
+the boards **verbatim** — write them the way the board spells them (`Sardinia, Italy`,
+not `Sardegna`). No geo mapping or language heuristics live in the code.
 
 ## Configuration
 
-Everything lives in `config.yaml` (copy of `config.example.yaml`, schema v9), validated by
+Everything lives in `config.yaml` (copy of `config.example.yaml`, schema v10), validated by
 Pydantic models in `src/jobcaliber/config.py`:
 
 - `profile` — titles, seniority, contract type, skills (`core` levels + `tools`), location
-  (`primary`, `remote_ok`, `hybrid_max_km`).
+  (`primary`, optional `remote_query`, `hybrid_max_km`).
 - `job_filters` — per-dimension `mode` (`hard_gate` | `weighted` | `hybrid`) and `weight`
   for `core_skills`, `tools`, `contract`, `pay` (`target_annual`, `min_annual`,
   `hard_drop_tolerance`), `location` (`bucket_scores` used when weighted); plus
   `confidence_penalties` (`location_unknown`, `pay_missing`).
 - `notifications.telegram` — `notify_threshold`, `review_threshold`, `min_confidence`,
   `quiet_hours`, `digest_time`.
-- `scraping` — `boards`, `country`, `hours_old`, `page_size`, `page_cap`, `job_type`,
-  `extra_searches`.
+- `scraping` — `boards`, `country`, `hours_old`, `page_size`,
+  `board_max_results` (per-board ceiling, e.g. `{linkedin: 300, indeed: 500}`), `job_type`.
 - `schedule` — `scrape_times`, `backup_time`.
 - `ai` — `engines` (`kind`, `api`, `base_url`, `model`, optional `api_key_env` and
   `headers`), `roles` (`scorer`, `explainer`, `query_expander`), `custom_prompts`.

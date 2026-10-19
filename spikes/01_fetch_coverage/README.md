@@ -14,13 +14,14 @@ uv run python spikes/01_fetch_coverage/fetch_coverage.py              # fetch + 
 uv run python spikes/01_fetch_coverage/fetch_coverage.py --export-only  # rebuild only the benchmark set
 ```
 
-Takes ~10 min: 7 queries × 2 boards, sequential, 2s pause between boards, paginated
-`page_size` per request up to `page_cap` rows per board/query.
+Takes 20-40 min: 8 queries × 2 boards, sequential, 2s pause between boards, paginated
+`page_size` per request up to `board_max_results[board]`, stopping early when a page brings
+no new posting.
 
 ## Input
 
 - `input/queries.json` — gitignored, written at the start of every run: the exact query matrix,
-  boards, `page_size`, `page_cap`, `country`, `hours_old`, `job_type`. This is what the
+  boards, `page_size`, `board_max_results`, `country`, `hours_old`, `job_type`. This is what the
   report refers to, so a run is reproducible without guessing the config.
 
 ## Output

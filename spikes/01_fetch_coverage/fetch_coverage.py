@@ -67,7 +67,6 @@ def write_queries_snapshot(queries: list[Query], fetcher: Fetcher, config: AppCo
                 "id": f"q{i}",
                 "keywords": q.keywords,
                 "location": q.location,
-                "location_raw": q.location_raw,
                 "role": q.role,
                 "remote": q.remote,
             }

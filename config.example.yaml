@@ -1,5 +1,5 @@
 # jobcaliber config template — v9 profile-driven, English-only.
-version: 9
+version: 10
 db_path: "./data/jobs.db"
 
 # 1. Profile
@@ -11,8 +11,9 @@ profile:
     core: { "c++": 5, "python": 4 }
     tools: ["Qt", "FastAPI", "CMake"]
   location:
-    primary: "Torino"
-    remote_ok: true
+    # Passed to the boards verbatim: use the spelling the board understands.
+    primary: "Turin, Italy"
+    remote_query: "Italy"
     hybrid_max_km: 40
 
 # 2. Evaluation & filtering rules
@@ -36,11 +37,11 @@ job_filters:
     mode: "hard_gate"
     weight: 0
     # Used only when mode is 'weighted' (weight > 0).
-    bucket_scores: { primary: 1.0, remote: 1.0, hybrid: 0.8, unknown: 0.5, elsewhere: 0.0 }
+    bucket_scores:
+      { primary: 1.0, remote: 1.0, hybrid: 0.8, unknown: 0.5, elsewhere: 0.0 }
 
   # Confidence multipliers applied when a key field is missing.
   confidence_penalties: { location_unknown: 0.8, pay_missing: 0.85 }
-
 
 # 3. Notification delivery & thresholds
 notifications:
@@ -58,9 +59,9 @@ scraping:
   country: "italy"
   hours_old: 24
   page_size: 50
-  page_cap: 300
+  # Hard ceiling per query/board. Pagination also stops early when a page adds no new posting.
+  board_max_results: { linkedin: 500, indeed: 500 }
   job_type: "fulltime"
-  extra_searches: []
 
 # 5. Automation schedule
 schedule:
