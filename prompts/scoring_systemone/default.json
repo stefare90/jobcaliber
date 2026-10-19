@@ -1,0 +1,52 @@
+{
+  "core": {
+    "type": "score",
+    "instructions": "How well do the required core skills match the candidate's core stack: {{core_skills}}?",
+    "criteria": [
+      "No match: none of candidate core skills are required",
+      "Weak match: adjacent tech stack with small overlap",
+      "Good match: requires candidate core skills plus minor others",
+      "Perfect match: candidate core skills are the primary requirement"
+    ]
+  },
+  "tools": {
+    "type": "score",
+    "instructions": "How many of the candidate preferred tools ({{tools}}) are covered?",
+    "criteria": [
+      "None covered",
+      "One minor overlap",
+      "About half covered",
+      "All or most covered"
+    ]
+  },
+  "contract": {
+    "type": "score",
+    "instructions": "How well do contract type and seniority fit the preference (Seniority: {{seniority}}, wanted: {{contract_type}})?",
+    "criteria": [
+      "Internship, forced freelance, or junior-only",
+      "Acceptable fixed-term / unclear",
+      "Coherent permanent seniority match"
+    ]
+  },
+  "pay": {
+    "type": "score",
+    "instructions": "Given any compensation info, how attractive is it? (If missing, choose Not stated)",
+    "criteria": [
+      "Below minimum expectations",
+      "Not stated / neutral",
+      "Meets acceptable band",
+      "Above target band"
+    ]
+  },
+  "location": {
+    "type": "choice",
+    "instructions": "Which workplace arrangement applies to this job?",
+    "criteria": {
+      "primary": "Onsite or hybrid in candidate primary area ({{primary_location}})",
+      "remote": "Fully remote (from home / anywhere in Italy)",
+      "hybrid": "Hybrid with flexible attendance or close to {{primary_location}}",
+      "elsewhere": "Onsite outside candidate area and not remote",
+      "unknown": "No location or arrangement info available"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.laya-env/
+.clm-env/
+data/*.db*
+data/*.html
+data/raw/
+config.yaml
+.uv/
+.pytest_cache/
+.env
+spikes/*/input/
+spikes/*/output/

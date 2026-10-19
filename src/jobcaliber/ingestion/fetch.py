@@ -1,0 +1,175 @@
+"""Profile-driven job fetch via JobSpy. Scraping only: no gates, no scoring."""
+from __future__ import annotations
+
+import math
+import time
+
+from jobspy import scrape_jobs
+
+from jobcaliber.config import Profile, Scraping
+from jobcaliber.models import FetchStats, JobPosting, Query
+
+POLITENESS_GAP_S = 2
+
+CAPTCHA_MARKERS = [
+    "captcha",
+    "are you a robot",
+    "unusual traffic",
+    "verify you are human",
+    "access denied - ip",
+    "datadome",
+]
+
+
+def clean_value(v):
+    if v is None:
+        return None
+    if isinstance(v, float) and math.isnan(v):
+        return None
+    s = str(v).strip()
+    if s.lower() in ("nan", "none", "nat", ""):
+        return None
+    return v
+
+
+def is_captcha_text(text: str) -> bool:
+    return any(m in text.lower() for m in CAPTCHA_MARKERS)
+
+
+def row_usable(row: dict) -> bool:
+    if not (clean_value(row.get("title")) and clean_value(row.get("company")) and clean_value(row.get("job_url"))):
+        return False
+    blob = " ".join(str(row.get(k, "") or "") for k in ("title", "description", "company"))
+    return not is_captcha_text(blob)
+
+
+def to_job_posting(board: str, search_id: str, row: dict) -> JobPosting:
+    s_min = clean_value(row.get("min_amount"))
+    s_max = clean_value(row.get("max_amount"))
+    return JobPosting(
+        external_id=str(row.get("job_url") or f"{board}:{row.get('id')}"),
+        url=str(row.get("job_url") or ""),
+        company=str(row.get("company") or ""),
+        title=str(row.get("title") or ""),
+        source=board,
+        location_raw=clean_value(row.get("location")),
+        posted_at=str(row.get("date_posted")) if clean_value(row.get("date_posted")) else None,
+        salary_min=float(s_min) if s_min is not None else None,
+        salary_max=float(s_max) if s_max is not None else None,
+        description=clean_value(row.get("description")),
+        search_id=search_id,
+    )
+
+
+def normalize_fetch_location(loc_raw: str) -> tuple[str, bool]:
+    loc_clean = loc_raw.strip()
+    low = loc_clean.lower()
+    is_remote = low.startswith("remote") or "remote" in low
+    if low in ("sardegna", "sardinia"):
+        return "Sardinia, Italy", False
+    if is_remote:
+        return "Italy", True
+    return loc_clean, False
+
+
+class Fetcher:
+    def __init__(self, scraping: Scraping, scrape_fn=None, sleep_fn=time.sleep, on_page=None):
+        self.scraping = scraping
+        self.scrape_fn = scrape_fn or self._scrape
+        self.sleep_fn = sleep_fn
+        self.on_page = on_page
+        self.seen_ids: set[str] = set()
+
+    @property
+    def boards(self) -> list[str]:
+        return self.scraping.boards
+
+    @property
+    def page_size(self) -> int:
+        return self.scraping.page_size
+
+    @property
+    def page_cap(self) -> int:
+        return self.scraping.page_cap
+
+    def build_queries(self, profile: Profile) -> list[Query]:
+        locations = [profile.location.primary]
+        if profile.location.remote_ok and "remote" not in profile.location.primary.lower():
+            locations.append("Remote")
+
+        queries: list[Query] = []
+        for title in profile.titles:
+            for loc in locations:
+                fetch_loc, is_remote = normalize_fetch_location(loc)
+                queries.append(Query(keywords=title.strip(), location=fetch_loc,
+                                     location_raw=loc, role=title, remote=is_remote))
+
+        for extra in self.scraping.extra_searches:
+            fetch_loc, is_remote = normalize_fetch_location(extra.location)
+            queries.append(Query(keywords=extra.keywords.strip(), location=fetch_loc,
+                                 location_raw=extra.location, role=extra.keywords, remote=is_remote))
+        return queries
+
+    def _scrape(self, **kwargs):
+        return scrape_jobs(**kwargs)
+
+    def fetch_board(self, query: Query, board: str, search_id: str) -> tuple[list[JobPosting], FetchStats]:
+        stats = FetchStats()
+        postings: list[JobPosting] = []
+        offset = 0
+        while True:
+            df = self.scrape_fn(
+                site_name=board,
+                search_term=query.keywords,
+                location=query.location,
+                is_remote=query.remote,
+                results_wanted=self.page_size,
+                offset=offset,
+                hours_old=self.scraping.hours_old,
+                country_indeed=self.scraping.country,
+                job_type=self.scraping.job_type,
+                linkedin_fetch_description=(board == "linkedin"),
+                verbose=0,
+            )
+            batch = len(df) if df is not None else 0
+            stats.seen += batch
+            if df is not None and batch > 0:
+                for _, r in df.iterrows():
+                    row = {k: clean_value(v) for k, v in r.to_dict().items()}
+                    blob = " ".join(str(row.get(k, "") or "") for k in ("title", "description", "company"))
+                    if is_captcha_text(blob):
+                        continue
+                    if row_usable(row):
+                        stats.usable += 1
+                    posting = to_job_posting(board, search_id, row)
+                    if posting.external_id not in self.seen_ids:
+                        self.seen_ids.add(posting.external_id)
+                        stats.new += 1
+                    postings.append(posting)
+            if batch < self.page_size or stats.seen >= self.page_cap:
+                break
+            offset += self.page_size
+            if self.on_page is not None:
+                self.on_page(query, board, offset, stats.seen)
+            self.sleep_fn(POLITENESS_GAP_S)
+        return postings, stats
+
+    def fetch_all(self, profile: Profile) -> tuple[list[JobPosting], dict[str, FetchStats]]:
+        queries = self.build_queries(profile)
+        all_postings: list[JobPosting] = []
+        per_board: dict[str, FetchStats] = {b: FetchStats() for b in self.boards}
+        for qi, query in enumerate(queries, start=1):
+            for board in self.boards:
+                try:
+                    postings, stats = self.fetch_board(query, board, f"q{qi}")
+                except Exception as e:
+                    stats = FetchStats(errors=[f"q{qi}: {type(e).__name__}: {e}"])
+                    postings = []
+                all_postings.extend(postings)
+                agg = per_board[board]
+                agg.seen += stats.seen
+                agg.usable += stats.usable
+                agg.new += stats.new
+                agg.errors.extend(stats.errors)
+                self.sleep_fn(POLITENESS_GAP_S)
+        return all_postings, per_board

@@ -1,0 +1,111 @@
+# jobcaliber config template — v9 profile-driven, English-only.
+version: 9
+db_path: "./data/jobs.db"
+
+# 1. Profile
+profile:
+  titles: ["Backend Engineer", "Embedded Software Engineer", "Python Developer"]
+  seniority: "mid"
+  contract_type: "permanent"
+  skills:
+    core: { "c++": 5, "python": 4 }
+    tools: ["Qt", "FastAPI", "CMake"]
+  location:
+    primary: "Torino"
+    remote_ok: true
+    hybrid_max_km: 40
+
+# 2. Evaluation & filtering rules
+job_filters:
+  core_skills:
+    mode: "weighted"
+    weight: 45
+  tools:
+    mode: "weighted"
+    weight: 20
+  contract:
+    mode: "weighted"
+    weight: 20
+  pay:
+    mode: "hybrid"
+    weight: 15
+    target_annual: 40000
+    min_annual: 38000
+    hard_drop_tolerance: 0.05
+  location:
+    mode: "hard_gate"
+    weight: 0
+    # Used only when mode is 'weighted' (weight > 0).
+    bucket_scores: { primary: 1.0, remote: 1.0, hybrid: 0.8, unknown: 0.5, elsewhere: 0.0 }
+
+  # Confidence multipliers applied when a key field is missing.
+  confidence_penalties: { location_unknown: 0.8, pay_missing: 0.85 }
+
+
+# 3. Notification delivery & thresholds
+notifications:
+  telegram:
+    enabled: true
+    notify_threshold: 70
+    review_threshold: 60
+    min_confidence: 0.55
+    quiet_hours: "22-08"
+    digest_time: "20:00"
+
+# 4. Scraping parameters
+scraping:
+  boards: ["linkedin", "indeed"]
+  country: "italy"
+  hours_old: 24
+  page_size: 50
+  page_cap: 300
+  job_type: "fulltime"
+  extra_searches: []
+
+# 5. Automation schedule
+schedule:
+  scrape_times: ["08:00", "13:00", "19:00"]
+  backup_time: "03:00"
+
+# 6. AI engines, roles, and prompt overrides.
+# A decision engine (kind decision) decides; LLM engines (kind llm) refine
+# search titles and write the explainer. The scorer role accepts either kind
+# (decision -> prompts/scoring_systemone, llm -> prompts/scoring_llm).
+# Available kinds/apis:
+#   kind: decision -> api: systemone   (rizzo-flow, Jev, laya)
+#   kind: llm        -> api: openai   (Ollama /v1, OpenRouter, OpenAI)
+ai:
+  prompts_dir: "prompts"
+  engines:
+    rizzo:
+      kind: "decision"
+      api: "systemone"
+      base_url: "http://127.0.0.1:8017"
+      model: "rizzo-latest"
+    jev:
+      kind: "decision"
+      api: "systemone"
+      base_url: "https://opencode.ai/inference"
+      model: "jev-1.13-free"
+      api_key_env: "OPENCODE_API_KEY"
+    local_llm:
+      kind: "llm"
+      api: "openai"
+      base_url: "http://localhost:11434/v1"
+      model: "gpt-oss:20b"
+    opencode_llm:
+      kind: "llm"
+      api: "openai"
+      # opencode-go channel: /inference/v1 only serves the in-app free tier (403).
+      base_url: "https://opencode.ai/inference/go/v1"
+      model: "deepseek-v4.1-flash"
+      api_key_env: "OPENCODE_API_KEY"
+      headers:
+        x-opencode-session: "jobcaliber"
+  roles:
+    scorer: "rizzo"
+    explainer: "local_llm"
+    query_expander: "local_llm"
+  # Override any default prompt (prompts/<kind>/default.<ext>) with a custom file.
+  # Example: scoring_systemone: "italy_software"
+  custom_prompts: {}
