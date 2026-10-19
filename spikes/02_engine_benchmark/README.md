@@ -30,7 +30,7 @@ changes. `--limit` caps the set size; default 20.
 
 ## Input
 
-- `input/postings.jsonl` — gitignored frozen set produced by spike 01 (`518` postings, one
+- `input/postings.jsonl` — gitignored frozen set produced by spike 01 (`924` postings, one
   JSON object per line, deduplicated by `external_id`). Never re-derived at run time: every
   engine and every run sees the same offers. Regenerate with
   `fetch_coverage.py` (or `--export-only`, no network needed).
@@ -50,9 +50,10 @@ changes. `--limit` caps the set size; default 20.
 
 Standalone on purpose: the runner measures, the comparator reports. Re-render the
 comparison without re-scoring, and compare as soon as one more engine has been measured.
-It reads every `results-*.json` (or the engines you name) and **refuses to mix runs with a
-different `dataset_sha` or `limit`**, so an old 20-posting run can never be compared with
-a new 50-posting one.
+It reads every `results-*.json` (or the engines you name) and refuses two things: mixing
+runs with a different `dataset_sha`/`limit`, and reporting results that no longer match the
+current `input/postings.jsonl`. When the dataset changes, it says which engines must be
+re-run instead of silently showing stale numbers.
 
 ## Verdict
 

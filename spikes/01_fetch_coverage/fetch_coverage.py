@@ -58,7 +58,7 @@ def write_queries_snapshot(queries: list[Query], fetcher: Fetcher, config: AppCo
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "boards": list(fetcher.boards),
         "page_size": fetcher.page_size,
-        "page_cap": fetcher.page_cap,
+        "board_max_results": {b: fetcher.scraping.max_results(b) for b in fetcher.boards},
         "country": config.scraping.country,
         "hours_old": config.scraping.hours_old,
         "job_type": config.scraping.job_type,
@@ -119,7 +119,8 @@ def render_report(
         f"- started_utc: {started}",
         f"- config: {config_path.name}",
         f"- params: country_indeed={config.scraping.country}, hours_old={config.scraping.hours_old}, "
-        f"page={fetcher.page_size} cap={fetcher.page_cap}/board/query, job_type={config.scraping.job_type}",
+        f"page={fetcher.page_size} max={{{', '.join(f'{b}: {fetcher.scraping.max_results(b)}' for b in fetcher.boards)}}} "
+        f"job_type={config.scraping.job_type}",
         f"- boards: {', '.join(fetcher.boards)}",
         f"- queries: {len(queries)}",
         "",

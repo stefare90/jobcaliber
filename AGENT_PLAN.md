@@ -316,3 +316,13 @@ committing `config.yaml`.
   0.38s; deepseek 20 DROP, 7.64s; qwen3 13 DROP/7 REVIEW, flat 7.5, 11.67s. jev and deepseek
   agree on 100% of decisions. Sample is the first 20 by external_id (noise) -> latency and
   plumbing only, not calibration. Tests 55/55 green.
+- [x] Fetch config v10 (2026-10-19) — `profile.location` now sends board-ready strings
+  verbatim (`primary`, optional `remote_query`) and `normalize_fetch_location` is gone: no
+  geo/language heuristic left in code. `remote_ok` dropped (remote acceptance is
+  `bucket_scores.remote`); `extra_searches`/`ExtraSearch` dropped (Backend Developer is now
+  a title); `scraping.page_cap` -> `board_max_results {linkedin: 300, indeed: 500}` with a
+  fail-fast key check; pagination also stops when a page adds no new `external_id`.
+  `Query.location_raw` removed (one `location` field). Real run (33 min): 1593 usable rows,
+  924 unique postings, 0 errors, 0 captcha; only q2 (Embedded @ Sardinia, 3 rows) misses the
+  pass bar. `compare_benchmark.py` now also refuses stale results (dataset_sha vs the current
+  postings.jsonl). Tests 58/58 green.

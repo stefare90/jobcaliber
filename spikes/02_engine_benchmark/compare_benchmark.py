@@ -11,6 +11,7 @@ different dataset or limit.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import statistics
 import sys
@@ -20,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
+INPUT_PATH = HERE / "input" / "postings.jsonl"
 OUTPUT_DIR = HERE / "output"
 REPORT_PATH = OUTPUT_DIR / "comparison.md"
 
@@ -44,9 +46,22 @@ def load_results(names: list[str] | None) -> list[dict]:
     return results
 
 
+def current_dataset_sha() -> str | None:
+    if not INPUT_PATH.exists():
+        return None
+    return hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest()[:16]
+
+
 def check_same_dataset(results: list[dict]) -> tuple[str, int]:
     shas = {r["dataset_sha"] for r in results}
     limits = {r["limit"] for r in results}
+    fresh = current_dataset_sha()
+    if fresh is not None and shas != {fresh}:
+        stale = sorted(r["engine"] for r in results if r["dataset_sha"] != fresh)
+        raise SystemExit(
+            f"results are stale: measured on dataset_sha {sorted(shas)}, "
+            f"but input/postings.jsonl is now {fresh}. Re-run: {', '.join(stale)}"
+        )
     if len(shas) > 1 or len(limits) > 1:
         details = "\n".join(
             f"- {r['engine']}: dataset={r['dataset_sha']} limit={r['limit']} "

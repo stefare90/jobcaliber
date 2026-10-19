@@ -40,7 +40,21 @@ captcha stored.
 
 ## Verdict
 
-Last run (2026-10-19): **FAIL** — 632 usable rows over 7 queries, 518 unique postings, no
-board errors and no captcha, but `q3` *Embedded Software Engineer @ Sardinia* returned only
-3 rows. City-scoped embedded roles are genuinely scarce, not a fetch bug; the remaining
-criteria are met. See `output/report.md`.
+Last run (2026-10-19, after raising `board_max_results` to linkedin 300 / indeed 500):
+**FAIL** on the pass bar — 1593 usable rows over 8 queries, **924 unique postings**, no board
+errors and no captcha. Only `q2` *Embedded Software Engineer @ Sardinia* fails with 3 rows;
+city-scoped embedded roles are genuinely scarce, not a fetch bug.
+
+| query | location | remote | seen | new |
+|---|---|---|---|---|
+| q1 Software Engineer | Sardinia, Italy | no | 27 | 27 |
+| q2 Embedded Software Engineer | Sardinia, Italy | no | 3 | 0 |
+| q3 Software Developer | Sardinia, Italy | no | 24 | 6 |
+| q4 Backend Developer | Sardinia, Italy | no | 20 | 1 |
+| q5 Software Engineer | Italy | yes | 371 | 281 |
+| q6 Embedded Software Engineer | Italy | yes | 301 | 211 |
+| q7 Software Developer | Italy | yes | 518 | 255 |
+| q8 Backend Developer | Italy | yes | 331 | 143 |
+
+LinkedIn hit its 300 ceiling on q5-q7; Indeed peaked at 218 (q7), well under its 500 ceiling.
+1595 rows collapse to 924 unique postings: the same ad is returned by several queries.
