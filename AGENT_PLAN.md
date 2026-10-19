@@ -300,3 +300,8 @@ committing `config.yaml`.
   search (region, seniority, contract). Spike `input/` is now gitignored too (scraped
   posting text + personal query matrix), so the committed repo is 420K of code, prompts,
   config template, schema and docs.
+- [x] Published (2026-10-19) — `git init` run by the user (the guard blocks git writes
+  while the session dir is not a repo, and it caches `null` until `/reload`). Branch
+  `master` -> `main`; root commit `20004b9` "chore: initial import of the jobcaliber
+  pipeline skeleton" (54 files, 4704 insertions) pushed to
+  https://github.com/stefare90/jobcaliber (public).
