@@ -13,12 +13,10 @@ _FRONT_MATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", re.DOTALL)
 
 # Each prompt kind fixes its file extension and the shape of its content.
 KIND_EXTENSIONS = {
-    "scoring_systemone": ".json",
-    "scoring_llm": ".md",
     "explainer": ".md",
     "query_expander": ".md",
 }
-LLM_KINDS = {"scoring_llm", "explainer", "query_expander"}
+LLM_KINDS = {"explainer", "query_expander"}
 DEFAULT_NAME = "default"
 
 

@@ -87,7 +87,7 @@ def render_report(
         "",
         "## Leaderboard",
         "",
-        "| # | Decision | Score | Conf | Time | Title | Company | Location | Bucket | URL |",
+        "| # | Decision | Score | Conf | Time | Title | Company | Location | Missing | URL |",
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for rank, (job, s1, ev, dt) in enumerate(results, start=1):
@@ -95,18 +95,21 @@ def render_report(
         lines.append(
             f"| {rank} | `{ev.decision.value.upper()}` | **{ev.score_total}** | {ev.confidence:.2f} | {dt:.2f}s | "
             f"{job.title.replace('|', '-')} | {job.company.replace('|', '-')} | "
-            f"{(job.location_raw or '').replace('|', '-')} | `{s1.location_bucket.value}` | {url} |"
+            f"{(job.location_raw or '').replace('|', '-')} | {', '.join(sorted(s1.missing)) or '-'} | {url} |"
         )
 
     lines += ["", "## Details", ""]
     for rank, (job, s1, ev, dt) in enumerate(results, start=1):
         subs = ev.sub_scores
+        answers = ", ".join(f"{key} `{value}`" for key, value in s1.answers.items())
         lines += [
             f"### #{rank} [{ev.decision.value.upper()}] {job.title} — {job.company}",
             f"- score **{ev.score_total}** · conf {ev.confidence:.2f} · {dt:.2f}s",
-            f"- location: `{job.location_raw}` -> `{s1.location_bucket.value}`",
-            f"- sub-scores: core `{subs.get('core')}` · tools `{subs.get('tools')}` · "
-            f"contract `{subs.get('contract')}` · pay `{subs.get('pay')}` · loc `{subs.get('location')}`",
+            f"- location: `{job.location_raw}`",
+            f"- answers: {answers}",
+            f"- weighted sub-scores: " + " · ".join(f"{k} `{v}`" for k, v in subs.items()),
+            f"- missing: {', '.join(sorted(s1.missing)) or 'none'}",
+            f"- dropped by: {ev.dropped_by or '-'}",
             f"- reasons: {', '.join(ev.reasons) or '-'}",
             f"- url: {job.url or '-'}",
             "",
@@ -140,11 +143,10 @@ def write_results(
                 "decision": ev.decision.value,
                 "score": ev.score_total,
                 "confidence": ev.confidence,
-                "core": ev.sub_scores.get("core"),
-                "tools": ev.sub_scores.get("tools"),
-                "contract": ev.sub_scores.get("contract"),
-                "pay": ev.sub_scores.get("pay"),
-                "location": s1.location_bucket.value,
+                "sub_scores": ev.sub_scores,
+                "answers": {k: v for k, v in s1.answers.items()},
+                "missing": sorted(s1.missing),
+                "dropped_by": ev.dropped_by,
                 "latency_s": round(dt, 2),
             }
             for job, s1, ev, dt in sorted(results, key=lambda t: t[0].external_id)
@@ -160,7 +162,7 @@ def run_engine(
 ) -> tuple[Path, int, float]:
     ai = AIClients.from_config(config.ai, ROOT)
     engine = config.ai.engines[engine_name]
-    scorer = ai.scorer_for(engine_name, config.profile)
+    scorer = ai.scorer_for(engine_name, config.criteria)
     evaluator = Evaluator(config)
     print(f"=== {engine_name} ({engine.model} @ {engine.base_url}) — {len(postings)} postings ===")
 

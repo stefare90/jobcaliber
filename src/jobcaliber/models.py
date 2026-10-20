@@ -11,14 +11,6 @@ class GateDecision(str, Enum):
     REVIEW = "review"
 
 
-class LocationBucket(str, Enum):
-    PRIMARY = "primary"
-    REMOTE = "remote"
-    HYBRID = "hybrid"
-    ELSEWHERE = "elsewhere"
-    UNKNOWN = "unknown"
-
-
 @dataclass
 class JobPosting:
     external_id: str
@@ -52,14 +44,12 @@ class FetchStats:
 
 
 @dataclass
-class SystemOneResult:
-    core_score: float  # 0.0 - 1.0
-    tools_score: float  # 0.0 - 1.0
-    contract_score: float  # 0.0 - 1.0
-    pay_score: float  # 0.0 - 1.0
-    pay_missing: bool
-    location_bucket: LocationBucket
-    confidence: float  # 0.0 - 1.0
+class ScoringResult:
+    """One answer per configured criterion: 0.0-1.0 for a score, an option key for a choice."""
+
+    answers: dict[str, float | str]
+    missing: set[str] = field(default_factory=set)
+    confidence: float = 0.85
     summary_reason: str = ""
 
 
@@ -70,3 +60,4 @@ class EvaluationResult:
     confidence: float  # 0.0 - 1.0
     sub_scores: dict[str, float] = field(default_factory=dict)
     reasons: list[str] = field(default_factory=list)
+    dropped_by: str | None = None

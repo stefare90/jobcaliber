@@ -1,9 +1,9 @@
-"""Query expander: alternate search titles proposed by an LLM, for extra_searches."""
+"""Query expander: alternate search titles proposed by an LLM, for the search block."""
 from __future__ import annotations
 
 from jobcaliber.ai.client import LLMClient
 from jobcaliber.ai.prompts import PromptStore, render
-from jobcaliber.config import Profile
+from jobcaliber.config import Search
 
 
 class QueryExpander:
@@ -11,8 +11,8 @@ class QueryExpander:
         self.client = client
         self.system, self.template = prompts.load_llm("query_expander")
 
-    def expand(self, profile: Profile, max_titles: int = 5) -> list[str]:
-        values = {"titles": "\n".join(profile.titles), "max": max_titles}
+    def expand(self, search: Search, max_titles: int = 5) -> list[str]:
+        values = {"titles": "\n".join(search.titles), "max": max_titles}
         raw = self.client.complete(
             user=render(self.template, values), system=render(self.system, values)
         )

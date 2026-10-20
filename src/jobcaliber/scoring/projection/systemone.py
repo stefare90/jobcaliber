@@ -1,4 +1,8 @@
-"""Project criteria into the `/v1/systemone` question payload (deterministic, no LLM)."""
+"""Project criteria into the `/v1/systemone` question payload (deterministic, no LLM).
+
+The wire schema is strict: a question carries only `type`, `instructions` and `criteria`.
+The `missing` marker is ours, not the wire's, so it stays in the config.
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -10,12 +14,10 @@ def build_systemone_questions(criteria: dict[str, Criterion]) -> dict[str, dict[
     questions: dict[str, dict[str, Any]] = {}
     for key, criterion in criteria.items():
         question = criterion.question
-        payload: dict[str, Any] = {"type": question.type, "instructions": question.instructions}
-        if question.type == "score":
-            payload["criteria"] = list(question.levels)
-            payload["missing_level"] = question.missing
-        else:
-            payload["criteria"] = dict(question.options)
-            payload["missing_choice"] = question.missing
-        questions[key] = payload
+        criteria_payload: Any = list(question.levels) if question.type == "score" else dict(question.options)
+        questions[key] = {
+            "type": question.type,
+            "instructions": question.instructions,
+            "criteria": criteria_payload,
+        }
     return questions

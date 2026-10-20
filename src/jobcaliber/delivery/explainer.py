@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from jobcaliber.ai.client import LLMClient
 from jobcaliber.ai.prompts import PromptStore, render
-from jobcaliber.models import EvaluationResult, JobPosting, SystemOneResult
+from jobcaliber.models import EvaluationResult, JobPosting, ScoringResult
 
 
 class Explainer:
@@ -11,18 +11,15 @@ class Explainer:
         self.client = client
         self.system, self.template = prompts.load_llm("explainer")
 
-    def explain(self, posting: JobPosting, s1: SystemOneResult, evaluation: EvaluationResult) -> str:
+    def explain(self, posting: JobPosting, result: ScoringResult, evaluation: EvaluationResult) -> str:
         values = {
             "title": posting.title,
             "company": posting.company,
             "location": posting.location_raw or "unknown",
             "score": evaluation.score_total,
             "confidence": evaluation.confidence,
-            "core": s1.core_score,
-            "tools": s1.tools_score,
-            "contract": s1.contract_score,
-            "pay": s1.pay_score,
-            "location_bucket": s1.location_bucket.value,
+            "sub_scores": ", ".join(f"{key} {value}" for key, value in evaluation.sub_scores.items()),
+            "missing": ", ".join(sorted(result.missing)) or "none",
             "reasons": "; ".join(evaluation.reasons),
         }
         return self.client.complete(

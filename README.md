@@ -14,11 +14,11 @@ are next.
 | Typed config (Pydantic v2, schema v9) | ✅ validated at load, fail-fast |
 | Fetch (JobSpy: LinkedIn + Indeed, paginated) | ✅ `ingestion/fetch.py`, 632 usable rows measured |
 | AI transports (System One + OpenAI wire) | ✅ registry by wire api, config-driven engines |
-| Scorer (5 atomic questions, prompt-driven) | ✅ `scoring/scorer/`, System One + LLM |
-| Evaluator (gates, weights, confidence) | ✅ `scoring/evaluator.py` |
+| Scorer (per-criterion questions, projected rubrics) | ✅ `scoring/scorer/`, System One + LLM |
+| Evaluator (gates → weighted sum, confidence) | ✅ `scoring/evaluator.py` |
 | Explainer / query expander | ✅ thin clients + prompts, not wired into a run yet |
 | SQLite storage, Telegram, scheduler | ⛔ W1 (`app/`, `delivery/`, `schema.sql` ready) |
-| Test suite | ✅ 53 tests, `uv run pytest` |
+| Test suite | ✅ 97 tests, `uv run pytest` |
 
 Spikes: `spikes/01_fetch_coverage` (do the queries reach enough offers?) and
 `spikes/02_engine_benchmark` (which engine discriminates best?). Both run end-to-end and
@@ -35,7 +35,7 @@ report real numbers in their own README.
 ## How it works (pipeline, fixed order)
 
 1. **Fetch** (`ingestion/fetch.py`) — JobSpy boards (LinkedIn, Indeed), queries built from
-   `profile.titles × query locations`, paginated with `page_size` up to
+   `search.titles × search.locations`, paginated with `page_size` up to
    `board_max_results[board]`, stopping early when a page adds no new posting; rate
    limited, captchas never stored, `NaN → None`. No gates, no scoring here. Max 2-4
    runs/day + jitter/backoff.
@@ -43,11 +43,12 @@ report real numbers in their own README.
    fragment) + normalized `company+title`, `UNIQUE(external_id)`. *(W1)*
 3. **Hard gates** before scoring: location (remote ok / hybrid ≤`hybrid_max_km` / far
    onsite dropped / unknown→review), title/company kill lists. *(W1: `ingestion/gates.py`)*
-4. **Score** (`scoring/`) — one call of 5 atomic questions to a System One model, answers
-   normalised into `SystemOneResult`. Interchangeable engines (`decision` or `llm`), same
+4. **Score** (`scoring/`) — one call carrying every configured question to a System One
+   model, answers normalised into `ScoringResult` (`answers` + `missing`). Interchangeable engines (`decision` or `llm`), same
    questions, same independent evaluator.
-5. **Evaluate** (`scoring/evaluator.py`) — config rules onto the scores: hard `DROP`,
-   review routing, weighted 0-100, combined confidence with missing-data penalties.
+5. **Evaluate** (`scoring/evaluator.py`) — gates first (an explicit negative answer
+   drops), then the weighted 0-100 over `weight > 0` criteria, then confidence with the
+   missing-data penalties.
 6. **Gate:** `> notifica_soglia + confidence >= min` → notify, review band → web review,
    below → hidden. `notified` = idempotency, never re-notify. *(W1)*
 7. **Explanation:** LLM text only for notified offers (2 lines), template fallback when
@@ -57,17 +58,15 @@ report real numbers in their own README.
 
 `total = 45*core + 20*tools + 15*pay + 20*contract` (location = hard gate, weight 0).
 
-- `core ×45` — profile core-skills match (`profile.skills.core` with weights).
-- `tools ×20` — tool coverage (`profile.skills.tools`).
-- `pay ×15` — against `job_filters.pay` (`target_annual`, `min_annual`). Missing pay is
-  **never a blind zero**: neutral level + flag + confidence penalty.
+- `core_skills ×45` — how well the required stack matches yours.
+- `tools ×20` — tool coverage.
+- `pay ×15` — how close the stated pay is to your target. Missing pay is **never a blind
+  zero**: neutral `0.5` + `missing` flag + confidence penalty + forced REVIEW.
 - `contract ×20` — contract/seniority vs preference.
-- `location` — model-classified `LocationBucket` (`primary / remote / hybrid / elsewhere /
-  unknown`), scored via config `bucket_scores`, `elsewhere` = hard drop, `unknown` =
-  confidence penalty.
+- `location` — a `choice` gate: `elsewhere` drops, `unknown` (the missing option) does not.
 
-Weights, thresholds and penalties all live in `config.yaml`. The five questions live in
-`prompts/scoring_systemone/default.json` — no question text is hardcoded in Python.
+Weights, thresholds, questions and penalties all live in `config.yaml`. No question text
+and no criterion name is hardcoded in Python.
 
 ## AI engines
 
@@ -106,14 +105,14 @@ jobcaliber/
 ├── config.example.yaml     # generic template (copy to config.yaml, never commit it)
 ├── .env.example            # secret template (copy to .env, never commit it)
 ├── .pi/extensions/         # pi project extensions (git-guard: commit/push approval)
-├── prompts/                # scoring_systemone/*.json, scoring_llm/*.md, explainer, query_expander
+├── prompts/                # explainer, query_expander (rubrics are projected from criteria)
 ├── src/jobcaliber/         # package, split by pipeline stage:
-│   ├── config.py           #   typed config (Pydantic) + load_config (+ .env loading)
+│   ├── config.py           #   typed config (search, criteria, gates) + validators
 │   ├── env.py              #   minimal .env parser, real environment wins
-│   ├── models.py           #   domain entities (JobPosting, SystemOneResult, ...)
+│   ├── models.py           #   domain entities (JobPosting, ScoringResult, ...)
 │   ├── ai/                 #   client/ (AIClient base + systemone, openai), prompts, registry
 │   ├── ingestion/          #   fetch, query_expander (+ W1: dedup, gates)
-│   ├── scoring/            #   scorer/ (Scorer base + system_one, llm), evaluator
+│   ├── scoring/            #   scorer/ (system_one, llm), projection/, evaluator
 │   ├── delivery/           #   explainer (+ W1: notify, storage)
 │   └── app/                #   W1: CLI, scheduler, web
 ├── spikes/                 # experiments, one folder per question
@@ -183,22 +182,24 @@ uv run python -m app --check          # skeleton + healthcheck
 uv run python -m app run              # fetch -> score -> evaluate -> notify
 ```
 
-Queries are generated from the profile: `titles × locations`, where `locations` is
-`[primary]` plus `[remote_query]` when that field is set. Location strings are passed to
-the boards **verbatim** — write them the way the board spells them (`Sardinia, Italy`,
-not `Sardegna`). No geo mapping or language heuristics live in the code.
+Queries are the cartesian product `search.titles × search.locations`. Location strings are
+passed to the boards **verbatim** — write them the way the board spells them
+(`Sardinia, Italy`, not `Sardegna`). No geo mapping or language heuristics live in the code.
 
 ## Configuration
 
-Everything lives in `config.yaml` (copy of `config.example.yaml`, schema v10), validated by
+Everything lives in `config.yaml` (copy of `config.example.yaml`, schema v11), validated by
 Pydantic models in `src/jobcaliber/config.py`:
 
-- `profile` — titles, seniority, contract type, skills (`core` levels + `tools`), location
-  (`primary`, optional `remote_query`, `hybrid_max_km`).
-- `job_filters` — per-dimension `mode` (`hard_gate` | `weighted` | `hybrid`) and `weight`
-  for `core_skills`, `tools`, `contract`, `pay` (`target_annual`, `min_annual`,
-  `hard_drop_tolerance`), `location` (`bucket_scores` used when weighted); plus
-  `confidence_penalties` (`location_unknown`, `pay_missing`).
+- `search` — the **only bound part**: `titles` and `locations` (`query` + `remote`) drive
+  the boards. Strings are sent verbatim (`Sardinia, Italy`, not `Sardegna`).
+- `criteria` — free-keyed dimensions, each **carrying its own question**:
+  - `weight > 0` → weighted: the answer (0-1) enters the 0-100 sum
+  - `gate` → hard gate: `true` (answer must be `yes`), `{accept: [...]}` (choice answer
+    must be one of these), `{min_score: x}` (score answer must be ≥ x)
+  - `question` — `type` (`score` | `choice`), `instructions`, and `levels` (score) or
+    `options` (choice), plus `missing` (the level index or option key meaning "not stated")
+- `penalties` — per-criterion confidence multiplier applied when that answer is missing.
 - `notifications.telegram` — `notify_threshold`, `review_threshold`, `min_confidence`,
   `quiet_hours`, `digest_time`.
 - `scraping` — `boards`, `country`, `hours_old`, `page_size`,
@@ -206,11 +207,19 @@ Pydantic models in `src/jobcaliber/config.py`:
 - `schedule` — `scrape_times`, `backup_time`.
 - `ai` — `engines` (`kind`, `api`, `base_url`, `model`, optional `api_key_env`, `headers`,
   `options`, `throttle_s`, `retry`), `roles` (`scorer`, `explainer`, `query_expander`),
-  `custom_prompts`.
+  `custom_prompts` (prose prompts only).
 
-Values whose keys mirror a domain enum (e.g. `location.bucket_scores` vs
-`LocationBucket`) and prompt criteria are validated at load/startup, never silently
-degraded.
+**Adding a criterion is data, not code**: add a key under `criteria` with its question.
+The rubric for both engine families (`scoring_systemone` JSON and `scoring_llm` markdown) is
+**projected** from `criteria` at runtime, so the two formats can never drift apart, and no
+prompt file has to be regenerated when a weight or a value changes.
+
+Two invariants worth knowing:
+
+- a **missing answer never drops** a posting: it becomes neutral `0.5`, lowers confidence
+  and forces REVIEW. Only an explicit negative answer triggers a gate.
+- `weight > 0` and `gate` are mutually exclusive, validated at load together with the
+  gate/question shape (see `validate_criteria`).
 
 ### Secrets
 
@@ -231,9 +240,9 @@ Real environment variables always win over `.env` (`os.environ.setdefault`), so 
 uv sync --frozen && uv run pytest -q
 ```
 
-53 tests cover typed config + validation, `.env` loading precedence, AI client registry and
-wire formats, fetch/query building, scorer prompt parsing and level derivation, and the
-evaluator gates/weights/confidence.
+97 tests cover typed config + the ten criteria validators, rubric projections (both formats),
+`.env` loading precedence, AI client registry, retries and wire formats, fetch/query
+building, the generic scorers, and the evaluator (gates, weighted sum, penalties).
 
 ## Roadmap (W1)
 

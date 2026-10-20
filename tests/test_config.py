@@ -1,126 +1,116 @@
 import pytest
+import yaml
 from pydantic import ValidationError
 
-from jobcaliber.config import AIConfig, AIEngine, AppConfig, JobFilters, LocationFilter, load_config
+from jobcaliber.config import (
+    AIConfig,
+    AIEngine,
+    AppConfig,
+    Criterion,
+    GateAccept,
+    Question,
+    Search,
+    SearchLocation,
+    load_config,
+)
 
 FULL_YAML = """
-version: 10
+version: 11
 db_path: "./data/jobs.db"
-profile:
+search:
   titles: ["Software Engineer"]
-  seniority: "senior"
-  contract_type: "permanent"
-  skills:
-    core: { "c++": 5 }
-    tools: ["Qt"]
-  location: { primary: "Sardinia, Italy", remote_query: "Italy", hybrid_max_km: 40 }
-job_filters:
-  core_skills: { mode: "weighted", weight: 45 }
-  pay: { mode: "hybrid", weight: 15, target_annual: 40000, min_annual: 38000, hard_drop_tolerance: 0.05 }
-  location: { mode: "hard_gate", weight: 0 }
+  locations:
+    - {query: "Sardinia, Italy", remote: false}
+    - {query: "Italy", remote: true}
+criteria:
+  core_skills:
+    weight: 45
+    question:
+      type: "score"
+      instructions: "how well do the skills match?"
+      levels: ["Not stated", "No match", "Good", "Perfect"]
+      missing: 0
+  location:
+    gate: {accept: ["primary", "remote"]}
+    question:
+      type: "choice"
+      instructions: "which arrangement?"
+      options: {primary: "onsite", remote: "remote", unknown: "unknown"}
+      missing: "unknown"
+penalties: {core_skills: 0.85}
 notifications:
-  telegram: { notify_threshold: 70, review_threshold: 60, min_confidence: 0.55 }
+  telegram: {notify_threshold: 70, review_threshold: 60, min_confidence: 0.55}
 scraping:
   boards: ["linkedin", "indeed"]
-  hours_old: null
-  board_max_results: { linkedin: 300, indeed: 500 }
+  board_max_results: {linkedin: 300, indeed: 500}
 ai:
   engines:
-    rizzo: { kind: "decision", api: "systemone", base_url: "http://127.0.0.1:8017", model: "rizzo-latest" }
-    local_llm: { kind: "llm", api: "openai", base_url: "http://localhost:11434/v1", model: "gpt-oss:20b" }
-  roles: { scorer: "rizzo", explainer: "local_llm" }
-  custom_prompts: { explainer: "concise_it" }
+    rizzo: {kind: "decision", api: "systemone", base_url: "http://127.0.0.1:8017", model: "rizzo-latest"}
+    local_llm: {kind: "llm", api: "openai", base_url: "http://localhost:11434/v1", model: "qwen3:8b"}
+  roles: {scorer: "rizzo", explainer: "local_llm"}
+  custom_prompts: {explainer: "concise_it"}
 """
 
 
 def test_app_config_parses_full_yaml():
-    import yaml
     cfg = AppConfig.model_validate(yaml.safe_load(FULL_YAML))
-    assert cfg.version == 10
-    assert cfg.profile.location.primary == "Sardinia, Italy"
-    assert cfg.profile.location.remote_query == "Italy"
-    assert cfg.job_filters.pay.min_annual == 38000
-    assert cfg.scraping.max_results("linkedin") == 300
-    assert cfg.scraping.max_results("indeed") == 500
+    assert cfg.version == 11
+    assert cfg.search.titles == ["Software Engineer"]
+    assert [loc.remote for loc in cfg.search.locations] == [False, True]
+    assert cfg.criteria["core_skills"].weight == 45
+    assert isinstance(cfg.criteria["location"].gate, GateAccept)
+    assert cfg.penalties == {"core_skills": 0.85}
     assert cfg.ai.engines["rizzo"].kind == "decision"
     assert cfg.ai.roles["scorer"] == "rizzo"
-    assert cfg.ai.custom_prompts["explainer"] == "concise_it"
 
 
 def test_app_config_defaults():
-    cfg = AppConfig.model_validate({"profile": {"titles": ["Dev"], "location": {"primary": "Turin, Italy"}}})
-    assert cfg.job_filters.core_skills.weight == 45
+    cfg = AppConfig.model_validate({
+        "search": {"titles": ["Dev"], "locations": [{"query": "Turin, Italy"}]},
+        "criteria": {"core": {"weight": 45, "question": {
+            "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
+    })
+    assert cfg.version == 11
+    assert cfg.penalties == {}
     assert cfg.ai.engines == {}
-    assert cfg.ai.roles == {}
-    assert cfg.ai.prompts_dir == "prompts"
+    assert cfg.scraping.max_results("linkedin") == 300
 
 
-def test_app_config_requires_profile():
+def test_app_config_rejects_unknown_top_level_key():
     with pytest.raises(ValidationError):
-        AppConfig.model_validate({"version": 9})
+        AppConfig.model_validate({
+            "search": {"titles": ["Dev"], "locations": [{"query": "Turin, Italy"}]},
+            "criteria": {"core": {"weight": 45, "question": {
+                "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
+            "job_filters": {"core_skills": {"weight": 45}},
+        })
 
 
-def test_engine_rejects_bad_api_for_kind():
-    with pytest.raises(ValidationError):
-        AIEngine(kind="decision", api="openai", base_url="x", model="m")
-    with pytest.raises(ValidationError):
+def test_app_config_rejects_invalid_criteria():
+    with pytest.raises(ValidationError, match="set either weight > 0 or a gate"):
+        AppConfig.model_validate({
+            "search": {"titles": ["Dev"], "locations": [{"query": "Turin, Italy"}]},
+            "criteria": {"core": {"question": {
+                "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
+        })
+
+
+def test_board_max_results_rejects_unknown_board():
+    with pytest.raises(ValidationError, match="board_max_results names unknown boards"):
+        AppConfig.model_validate({
+            "search": {"titles": ["Dev"], "locations": [{"query": "Turin, Italy"}]},
+            "criteria": {"core": {"weight": 1, "question": {
+                "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
+            "scraping": {"boards": ["linkedin"], "board_max_results": {"linkedin": 300, "indeed": 500}},
+        })
+
+
+def test_engine_kind_api_validation():
+    AIEngine(kind="llm", api="openai", base_url="http://x", model="m")
+    with pytest.raises(ValidationError, match="unknown engine kind"):
+        AIEngine(kind="system_one", api="openai", base_url="x", model="m")
+    with pytest.raises(ValidationError, match="not valid for kind"):
         AIEngine(kind="llm", api="systemone", base_url="x", model="m")
-
-
-def test_ai_config_rejects_role_with_unknown_engine():
-    with pytest.raises(ValidationError):
-        AIConfig(
-            engines={"rizzo": AIEngine(kind="decision", api="systemone", base_url="x", model="m")},
-            roles={"scorer": "missing"},
-        )
-
-
-def test_ai_config_rejects_role_kind_mismatch():
-    with pytest.raises(ValidationError):
-        AIConfig(
-            engines={"sc": AIEngine(kind="decision", api="systemone", base_url="x", model="m")},
-            roles={"explainer": "sc"},
-        )
-
-
-def test_ai_config_allows_llm_scorer():
-    cfg = AIConfig(
-        engines={"ll": AIEngine(kind="llm", api="openai", base_url="x", model="m")},
-        roles={"scorer": "ll"},
-    )
-    assert cfg.roles["scorer"] == "ll"
-
-
-def test_location_bucket_scores_must_match_enum():
-    with pytest.raises(ValidationError):
-        LocationFilter(bucket_scores={"primary": 1.0, "remote": 1.0})
-    with pytest.raises(ValidationError):
-        LocationFilter(bucket_scores={"primary": 1.0, "remote": 1.0, "hybrid": 0.8,
-                                      "unknown": 0.5, "elsewhere": 0.0, "extra": 0.1})
-    JobFilters(location=LocationFilter(bucket_scores={"primary": 1.0, "remote": 1.0, "hybrid": 0.8,
-                                                      "unknown": 0.5, "elsewhere": 0.0}))
-
-
-def test_engine_resolves_api_key_from_env(monkeypatch):
-    monkeypatch.setenv("MY_KEY", "from-env")
-    assert AIEngine(kind="decision", api="systemone", base_url="x", model="m", api_key_env="MY_KEY").resolve_api_key() == "from-env"
-    monkeypatch.delenv("MY_KEY")
-    assert AIEngine(kind="decision", api="systemone", base_url="x", model="m", api_key_env="MY_KEY").resolve_api_key() == ""
-
-
-def test_load_config_prefers_personal_copy(tmp_path):
-    (tmp_path / "config.example.yaml").write_text("profile:\n  titles: [A]\n  location: {primary: X}\n", encoding="utf-8")
-    (tmp_path / "config.yaml").write_text("profile:\n  titles: [B]\n  location: {primary: Y}\n", encoding="utf-8")
-    path, cfg = load_config(tmp_path)
-    assert path.name == "config.yaml"
-    assert cfg.profile.titles == ["B"]
-
-
-def test_load_config_falls_back_to_example(tmp_path):
-    (tmp_path / "config.example.yaml").write_text("profile:\n  titles: [A]\n  location: {primary: X}\n", encoding="utf-8")
-    path, cfg = load_config(tmp_path)
-    assert path.name == "config.example.yaml"
-    assert cfg.profile.location.primary == "X"
 
 
 def test_engine_options_rejected_outside_llm_kind():
@@ -128,14 +118,30 @@ def test_engine_options_rejected_outside_llm_kind():
         AIEngine(kind="decision", api="systemone", base_url="x", model="m", options={"seed": 1})
 
 
-def test_board_max_results_rejects_unknown_board():
-    with pytest.raises(ValidationError, match="board_max_results names unknown boards"):
-        AppConfig.model_validate({
-            "profile": {"titles": ["Dev"], "location": {"primary": "Turin, Italy"}},
-            "scraping": {"boards": ["linkedin"], "board_max_results": {"linkedin": 300, "indeed": 500}},
-        })
+def test_engine_resolves_api_key_from_env(monkeypatch):
+    monkeypatch.setenv("MY_KEY", "from-env")
+    assert AIEngine(kind="decision", api="systemone", base_url="x", model="m",
+                    api_key_env="MY_KEY").resolve_api_key() == "from-env"
+    monkeypatch.delenv("MY_KEY")
+    assert AIEngine(kind="decision", api="systemone", base_url="x", model="m",
+                    api_key_env="MY_KEY").resolve_api_key() == ""
 
 
-def test_remote_query_defaults_to_none():
-    cfg = AppConfig.model_validate({"profile": {"titles": ["Dev"], "location": {"primary": "Turin, Italy"}}})
-    assert cfg.profile.location.remote_query is None
+def test_roles_validate_engine_kind():
+    with pytest.raises(ValidationError, match="role 'explainer' accepts"):
+        AIConfig(
+            engines={"sc": AIEngine(kind="decision", api="systemone", base_url="x", model="m")},
+            roles={"explainer": "sc"},
+        )
+    with pytest.raises(ValidationError, match="references unknown engine"):
+        AIConfig(engines={}, roles={"scorer": "ghost"})
+
+
+def test_load_config_prefers_personal_file(tmp_path):
+    example = tmp_path / "config.example.yaml"
+    example.write_text(FULL_YAML, encoding="utf-8")
+    path, cfg = load_config(tmp_path)
+    assert path.name == "config.example.yaml"
+    (tmp_path / "config.yaml").write_text(FULL_YAML, encoding="utf-8")
+    path, _ = load_config(tmp_path)
+    assert path.name == "config.yaml"

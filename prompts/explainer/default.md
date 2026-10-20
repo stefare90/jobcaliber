@@ -6,5 +6,6 @@ Job title: {{title}}
 Company: {{company}}
 Location: {{location}}
 Score: {{score}}/100 (confidence {{confidence}})
-Sub-scores: core {{core}}, tools {{tools}}, contract {{contract}}, pay {{pay}}, location {{location}}
+Criteria: {{sub_scores}}
+Not stated: {{missing}}
 Model reasons: {{reasons}}

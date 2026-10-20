@@ -1,157 +1,119 @@
 import json
-from pathlib import Path
 
 import httpx
+import pytest
 
-from jobcaliber.ai import AIError, LLMClient, PromptError, PromptStore, SystemOneClient
-from jobcaliber.config import AIEngine, LocationPrefs, Profile, Skills
-from jobcaliber.models import JobPosting, LocationBucket
-from jobcaliber.scoring import LLMScorer, Scorer, SystemOneScorer, validate_systemone_questions
-
-PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
-
-
-def make_profile():
-    return Profile(
-        titles=["Senior C++ Developer"],
-        seniority="senior",
-        skills=Skills(core={"c++": 5, "python": 4}, tools=["Qt", "CMake"]),
-        location=LocationPrefs(primary="Sardegna"),
-    )
+from jobcaliber.ai import LLMClient, PromptStore, SystemOneClient
+from jobcaliber.config import AIEngine, Criterion, GateAccept, Question
+from jobcaliber.models import GateDecision, JobPosting, ScoringResult
+from jobcaliber.scoring import Evaluator, LLMScorer, Scorer, SystemOneScorer
+from jobcaliber.scoring.scorer.system_one import validate_answers
 
 
-def test_system_one_scorer_parses_answers():
-    posting = JobPosting(
-        external_id="123", url="http://test.com", title="Senior C++ Developer",
-        company="Inpeco", location_raw="Cagliari, Italy",
-        description="Looking for C++ and Qt expert.", source="linkedin",
-    )
-    mock_json = {"answers": {
-        "core": {"score": 3.0, "confidence": 0.95},
-        "tools": {"score": 3.0, "confidence": 0.9},
-        "contract": {"score": 2.0, "confidence": 0.85},
-        "pay": {"score": 1.0, "confidence": 0.8},
-        "location": {"choice": "primary", "confidence": 0.95},
-    }}
-    http = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=mock_json)))
-    client = SystemOneClient(AIEngine(kind="decision", api="systemone", base_url="http://mock", model="m"), http)
-
-    result = SystemOneScorer(client, make_profile(), PromptStore(PROMPTS_DIR)).score_posting(posting)
-    assert result.core_score == 1.0
-    assert result.tools_score == 1.0
-    assert result.contract_score == 1.0
-    assert result.pay_missing is True
-    assert result.location_bucket == LocationBucket.PRIMARY
-    assert result.confidence >= 0.85
+def score_q(levels=("Not stated", "No match", "Weak", "Good", "Perfect"), missing=0):
+    return Question(type="score", instructions="how good?", levels=list(levels), missing=missing)
 
 
-def _valid_questions():
+def choice_q(options=("yes", "no", "missing"), missing="missing"):
+    return Question(type="choice", instructions="ok?", options={o: o for o in options}, missing=missing)
+
+
+def make_criteria() -> dict[str, Criterion]:
     return {
-        "core": {"type": "score", "criteria": ["a", "b"]},
-        "tools": {"type": "score", "criteria": ["a", "b"]},
-        "contract": {"type": "score", "criteria": ["a", "b"]},
-        "pay": {"type": "score", "criteria": ["low", "Not stated", "ok"]},
-        "location": {"type": "choice", "criteria": {b.value: "x" for b in LocationBucket}},
+        "core_skills": Criterion(weight=45, question=score_q()),
+        "tools": Criterion(weight=20, question=score_q()),
+        "salary_ok": Criterion(gate=True, question=choice_q()),
     }
 
 
-def test_validate_systemone_questions_accepts_valid():
-    validate_systemone_questions(_valid_questions())
+POSTING = JobPosting(
+    external_id="1", url="http://x", title="Embedded Engineer", company="Acme",
+    source="linkedin", location_raw="Cagliari", description="C++ firmware role.",
+)
 
 
-def test_validate_systemone_questions_rejects_missing_bucket():
-    q = _valid_questions()
-    del q["location"]["criteria"]["hybrid"]
-    try:
-        validate_systemone_questions(q)
-        assert False, "expected PromptError"
-    except PromptError:
-        pass
+def systemone_client(answers: dict) -> SystemOneClient:
+    payload = {"answers": answers, "usage": {"input_tokens": 1, "output_tokens": 1}}
+    http = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=payload)))
+    return SystemOneClient(AIEngine(kind="decision", api="systemone", base_url="http://mock", model="m"), http)
 
 
-def test_validate_systemone_questions_rejects_unknown_bucket():
-    q = _valid_questions()
-    q["location"]["criteria"]["onsite_moon"] = "x"
-    try:
-        validate_systemone_questions(q)
-        assert False, "expected PromptError"
-    except PromptError:
-        pass
+def test_systemone_scorer_maps_levels_and_choices():
+    client = systemone_client({
+        "core_skills": {"type": "score", "score": 4, "confidence": 0.9},
+        "tools": {"type": "score", "score": 2, "confidence": 0.8},
+        "salary_ok": {"type": "choice", "choice": "yes", "confidence": 0.9},
+    })
+    result = SystemOneScorer(client, make_criteria()).score_posting(POSTING)
+    assert result.answers["core_skills"] == pytest.approx(1.0)
+    assert result.answers["tools"] == pytest.approx(0.5)
+    assert result.answers["salary_ok"] == "yes"
+    assert result.missing == set()
+    assert result.confidence == pytest.approx(0.866, abs=1e-3)
 
 
-def test_validate_systemone_questions_requires_not_stated_pay():
-    q = _valid_questions()
-    q["pay"]["criteria"] = ["low", "mid", "high"]
-    try:
-        validate_systemone_questions(q)
-        assert False, "expected PromptError"
-    except PromptError:
-        pass
+def test_systemone_scorer_flags_missing_and_keeps_neutral_score():
+    client = systemone_client({
+        "core_skills": {"type": "score", "score": 0},
+        "tools": {"type": "score", "score": 3},
+        "salary_ok": {"type": "choice", "choice": "missing"},
+    })
+    result = SystemOneScorer(client, make_criteria()).score_posting(POSTING)
+    assert result.missing == {"core_skills", "salary_ok"}
+    assert result.answers["core_skills"] == 0.5
+    assert result.answers["tools"] == pytest.approx(0.75)
 
 
-def test_scorer_registry_and_create_dispatch():
-    from jobcaliber.scoring import Scorer
+def llm_client(content: str, capture: dict) -> LLMClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        capture.update(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
 
+    return LLMClient(
+        AIEngine(kind="llm", api="openai", base_url="http://mock/v1", model="m"),
+        httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+
+def test_llm_scorer_parses_keys_and_missing_list():
+    capture: dict = {}
+    content = json.dumps({
+        "core_skills": 0.9, "tools": 0.4, "salary_ok": "yes",
+        "missing": ["tools"], "confidence": 0.7, "summary_reason": "good",
+    })
+    client = llm_client(content, capture)
+    result = LLMScorer(client, make_criteria()).score_posting(POSTING)
+    assert result.answers["core_skills"] == pytest.approx(0.9)
+    assert result.answers["tools"] == 0.5
+    assert result.missing == {"tools"}
+    assert result.answers["salary_ok"] == "yes"
+    assert result.confidence == pytest.approx(0.7)
+    assert "Embedded Engineer" in capture["messages"][-1]["content"]
+
+
+def test_scorer_registry_dispatches_by_engine_kind():
     assert set(Scorer._registry) == {"decision", "llm"}
     assert Scorer._registry["decision"] is SystemOneScorer
     assert Scorer._registry["llm"] is LLMScorer
-
-    # Unknown engine kind fails with a clear error.
-    class _FakeEngine:
-        kind = "deterministic"
-
-    class _FakeClient:
-        engine = _FakeEngine()
-
-    try:
-        Scorer.create(_FakeClient(), make_profile(), PromptStore(PROMPTS_DIR))
-        assert False, "expected AIError"
-    except AIError:
-        pass
+    with pytest.raises(Exception, match="no scorer registered"):
+        Scorer.create(type("C", (), {"engine": AIEngine.model_construct(kind="ghost")})(), make_criteria(), None)
 
 
-def test_llm_scorer_parses_json_response():
-    posting = JobPosting(
-        external_id="9", url="http://test", title="Embedded Engineer", company="Acme",
-        location_raw="Cagliari", description="C++ firmware role.", source="linkedin",
-    )
-    llm_json = (
-        '{"core_score": 0.9, "tools_score": 0.4, "contract_score": 1.0, "pay_score": 0.5, '
-        '"pay_missing": true, "location_bucket": "hybrid", "confidence": 0.7, '
-        '"summary_reason": "good core match"}'
-    )
-    payload = {"choices": [{"message": {"content": llm_json}}]}
-    http = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=payload)))
-    client = LLMClient(AIEngine(kind="llm", api="openai", base_url="http://mock", model="m"), http)
-
-    result = LLMScorer(client, make_profile(), PromptStore(PROMPTS_DIR)).score_posting(posting)
-    assert result.core_score == 0.9
-    assert result.tools_score == 0.4
-    assert result.contract_score == 1.0
-    assert result.pay_missing is True
-    assert result.location_bucket == LocationBucket.HYBRID
-    assert result.summary_reason == "good core match"
+def test_validate_answers_rejects_mismatched_criteria():
+    client = systemone_client({})
+    with pytest.raises(Exception, match="do not match criteria"):
+        validate_answers({"other": {}}, make_criteria())
+    scorer = SystemOneScorer(client, make_criteria())
+    assert set(scorer.questions) == set(make_criteria())
 
 
-def test_system_one_scorer_derives_levels_from_prompt(tmp_path):
-    # A custom prompt with 5 core levels must normalize score/4, not score/3.
-    pdir = tmp_path / "prompts" / "scoring_systemone"
-    pdir.mkdir(parents=True)
-    (pdir / "default.json").write_text(json.dumps({
-        "core": {"type": "score", "instructions": "x", "criteria": ["a", "b", "c", "d", "e"]},
-        "tools": {"type": "score", "instructions": "x", "criteria": ["a", "b"]},
-        "contract": {"type": "score", "instructions": "x", "criteria": ["a", "b"]},
-        "pay": {"type": "score", "instructions": "x", "criteria": ["low", "Not stated", "ok"]},
-        "location": {"type": "choice", "instructions": "x",
-                     "criteria": {b.value: "x" for b in LocationBucket}},
-    }), encoding="utf-8")
+def test_systemone_projection_matches_criteria_shape():
+    scorer = SystemOneScorer(systemone_client({}), make_criteria())
+    assert scorer.questions["core_skills"]["type"] == "score"
+    assert scorer.criteria["core_skills"].question.missing == 0
+    assert scorer.criteria["salary_ok"].question.missing == "missing"
 
-    posting = JobPosting(external_id="1", url="u", title="t", company="c", source="s")
-    answers = {"answers": {"core": {"score": 4.0}, "pay": {"score": 1.0}}}
-    http = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(200, json=answers)))
-    client = SystemOneClient(AIEngine(kind="decision", api="systemone", base_url="http://mock", model="m"), http)
 
-    result = SystemOneScorer(client, make_profile(), PromptStore(tmp_path / "prompts")).score_posting(posting)
-    assert result.core_score == 1.0
-    assert result.pay_missing is True
-    assert result.tools_score == 0.5
+def test_scorer_rejects_invalid_criteria_at_construction():
+    with pytest.raises(ValueError, match="set either weight > 0 or a gate"):
+        SystemOneScorer(systemone_client({}), {"x": Criterion(question=score_q())})

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from jobcaliber.config import LocationPrefs, Profile, Scraping, Skills
+from jobcaliber.config import Scraping, Search, SearchLocation
 from jobcaliber.ingestion.fetch import (
     Fetcher,
     clean_value,
@@ -23,40 +23,37 @@ def make_scraping(**over):
     return Scraping(**defaults)
 
 
-def make_profile(**over):
+def make_search(**over):
     defaults = dict(
         titles=["Software Engineer", "Embedded Software Engineer", "Python Developer"],
-        location=LocationPrefs(primary="Sardinia, Italy", remote_query="Italy", hybrid_max_km=40),
-        skills=Skills(core={"c++": 5, "python": 4}, tools=["Qt", "CMake"]),
+        locations=[
+            SearchLocation(query="Sardinia, Italy"),
+            SearchLocation(query="Italy", remote=True),
+        ],
     )
     defaults.update(over)
-    return Profile(**defaults)
+    return Search(**defaults)
 
 
 def test_build_queries_passes_location_strings_verbatim():
     fetcher = Fetcher(make_scraping())
-    queries = fetcher.build_queries(make_profile())
+    queries = fetcher.build_queries(make_search())
     assert [(q.keywords, q.location, q.remote) for q in queries] == [
         ("Software Engineer", "Sardinia, Italy", False),
-        ("Embedded Software Engineer", "Sardinia, Italy", False),
-        ("Python Developer", "Sardinia, Italy", False),
         ("Software Engineer", "Italy", True),
+        ("Embedded Software Engineer", "Sardinia, Italy", False),
         ("Embedded Software Engineer", "Italy", True),
+        ("Python Developer", "Sardinia, Italy", False),
         ("Python Developer", "Italy", True),
     ]
 
 
-def test_build_queries_skips_remote_without_remote_query():
+def test_build_queries_without_remote_location():
     fetcher = Fetcher(make_scraping())
-    profile = make_profile(location=LocationPrefs(primary="Sardinia, Italy"))
-    queries = fetcher.build_queries(profile)
+    search = make_search(locations=[SearchLocation(query="Sardinia, Italy")])
+    queries = fetcher.build_queries(search)
     assert [q.location for q in queries] == ["Sardinia, Italy"] * 3
     assert all(q.remote is False for q in queries)
-
-
-def test_blank_remote_query_is_normalized_to_none():
-    assert LocationPrefs(primary="Sardinia, Italy", remote_query="   ").remote_query is None
-    assert LocationPrefs(primary="Sardinia, Italy", remote_query=" Italy ").remote_query == "Italy"
 
 
 def test_clean_value_normalizes_nan():
@@ -171,7 +168,7 @@ def test_fetch_all_records_board_errors_without_raising():
         raise RuntimeError("board down")
 
     fetcher = Fetcher(make_scraping(), scrape_fn=boom, sleep_fn=lambda s: None)
-    postings, per_board = fetcher.fetch_all(make_profile())
+    postings, per_board = fetcher.fetch_all(make_search())
     assert postings == []
     assert per_board["linkedin"].errors and "board down" in per_board["linkedin"].errors[0]
 

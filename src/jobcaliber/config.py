@@ -6,10 +6,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from jobcaliber.env import load_env
-from jobcaliber.models import LocationBucket
 
 CONFIG_FILENAME = "config.yaml"
 EXAMPLE_FILENAME = "config.example.yaml"
@@ -78,33 +77,6 @@ class AIConfig(BaseModel):
             if kind not in ROLE_KINDS[role]:
                 raise ValueError(f"role '{role}' accepts {sorted(ROLE_KINDS[role])} engines, but '{engine_name}' is '{kind}'")
         return self
-
-
-class LocationPrefs(BaseModel):
-    """Query strings are passed to the boards verbatim: write them the way the board spells them."""
-
-    primary: str
-    remote_query: str | None = None
-    hybrid_max_km: int = 40
-
-    @model_validator(mode="after")
-    def _normalize_remote_query(self) -> "LocationPrefs":
-        if self.remote_query is not None:
-            self.remote_query = self.remote_query.strip() or None
-        return self
-
-
-class Skills(BaseModel):
-    core: dict[str, int] = Field(default_factory=dict)
-    tools: list[str] = Field(default_factory=list)
-
-
-class Profile(BaseModel):
-    titles: list[str]
-    seniority: str = "mid"
-    contract_type: str = "permanent"
-    skills: Skills = Field(default_factory=Skills)
-    location: LocationPrefs
 
 
 class GateAccept(BaseModel):
@@ -241,48 +213,6 @@ def validate_criteria(criteria: dict[str, Criterion], penalties: dict[str, float
             raise ValueError(f"criterion '{key}': penalty must be within (0, 1], got {penalty}")
 
 
-class FilterParam(BaseModel):
-    mode: str = "weighted"
-    weight: float = 0.0
-
-
-class PayFilter(FilterParam):
-    target_annual: float = 40000.0
-    min_annual: float = 38000.0
-    hard_drop_tolerance: float = 0.05
-
-
-class LocationFilter(FilterParam):
-    mode: str = "hard_gate"
-    weight: float = 0.0
-    # Sub-scores used only when mode is 'weighted' (location.weight > 0).
-    bucket_scores: dict[str, float] = Field(default_factory=lambda: {
-        "primary": 1.0, "remote": 1.0, "hybrid": 0.8, "unknown": 0.5, "elsewhere": 0.0,
-    })
-
-    @model_validator(mode="after")
-    def _validate_bucket_keys(self) -> "LocationFilter":
-        expected = {b.value for b in LocationBucket}
-        got = set(self.bucket_scores)
-        if got != expected:
-            raise ValueError(f"bucket_scores keys {sorted(got)} must equal LocationBucket values {sorted(expected)}")
-        return self
-
-
-class ConfidencePenalties(BaseModel):
-    location_unknown: float = 0.8
-    pay_missing: float = 0.85
-
-
-class JobFilters(BaseModel):
-    core_skills: FilterParam = Field(default_factory=lambda: FilterParam(weight=45))
-    tools: FilterParam = Field(default_factory=lambda: FilterParam(weight=20))
-    contract: FilterParam = Field(default_factory=lambda: FilterParam(weight=20))
-    pay: PayFilter = Field(default_factory=lambda: PayFilter(weight=15))
-    location: LocationFilter = Field(default_factory=LocationFilter)
-    confidence_penalties: ConfidencePenalties = Field(default_factory=ConfidencePenalties)
-
-
 class TelegramNotifications(BaseModel):
     enabled: bool = True
     notify_threshold: float = 70.0
@@ -323,14 +253,23 @@ class Schedule(BaseModel):
 
 
 class AppConfig(BaseModel):
-    version: int = 10
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = 11
     db_path: str = "./data/jobs.db"
-    profile: Profile
-    job_filters: JobFilters = Field(default_factory=JobFilters)
+    search: Search
+    criteria: dict[str, Criterion]
+    penalties: dict[str, float] = Field(default_factory=dict)
     notifications: Notifications = Field(default_factory=Notifications)
     scraping: Scraping = Field(default_factory=Scraping)
     schedule: Schedule = Field(default_factory=Schedule)
     ai: AIConfig = Field(default_factory=AIConfig)
+
+    @model_validator(mode="after")
+    def _validate_schema(self) -> "AppConfig":
+        validate_search(self.search)
+        validate_criteria(self.criteria, self.penalties)
+        return self
 
 
 def load_config(root: Path) -> tuple[Path, AppConfig]:

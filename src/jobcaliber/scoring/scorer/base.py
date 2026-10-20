@@ -7,8 +7,8 @@ from typing import Any, ClassVar
 
 from jobcaliber.ai.client.base import AIError
 from jobcaliber.ai.prompts import PromptStore
-from jobcaliber.config import Profile
-from jobcaliber.models import JobPosting, LocationBucket, SystemOneResult
+from jobcaliber.config import Criterion
+from jobcaliber.models import JobPosting, ScoringResult
 
 
 class Scorer(ABC):
@@ -23,7 +23,7 @@ class Scorer(ABC):
     _registry: ClassVar[dict[str, type["Scorer"]]] = {}
 
     @abstractmethod
-    def score_posting(self, posting: JobPosting) -> SystemOneResult: ...
+    def score_posting(self, posting: JobPosting) -> ScoringResult: ...
 
     @classmethod
     def register(cls, kind: str):
@@ -33,23 +33,13 @@ class Scorer(ABC):
         return _decorator
 
     @classmethod
-    def create(cls, client: Any, profile: Profile, prompts: PromptStore) -> "Scorer":
+    def create(cls, client: Any, criteria: dict[str, Criterion], prompts: PromptStore) -> "Scorer":
         """Build the scorer registered for the client's engine kind."""
         kind = getattr(getattr(client, "engine", None), "kind", None)
         subclass = Scorer._registry.get(kind)
         if subclass is None:
             raise AIError(f"no scorer registered for engine kind '{kind}'; known: {sorted(Scorer._registry)}")
-        return subclass(client, profile, prompts)
-
-    @staticmethod
-    def question_values(profile: Profile) -> dict[str, str]:
-        return {
-            "core_skills": ", ".join(f"{k} (lvl {v})" for k, v in profile.skills.core.items()),
-            "tools": ", ".join(profile.skills.tools),
-            "seniority": profile.seniority,
-            "contract_type": profile.contract_type,
-            "primary_location": profile.location.primary,
-        }
+        return subclass(client, criteria, prompts)
 
     @staticmethod
     def build_state(posting: JobPosting) -> str:
@@ -72,25 +62,14 @@ class Scorer(ABC):
             return low
 
     @staticmethod
-    def location_bucket(value: Any) -> LocationBucket:
-        try:
-            return LocationBucket(str(value).lower())
-        except ValueError:
-            return LocationBucket.UNKNOWN
-
-    @staticmethod
-    def build_result(*, core: Any, tools: Any, contract: Any, pay: Any, pay_missing: bool,
-                     location: Any, confidence: Any, reason: str = "") -> SystemOneResult:
-        bucket = Scorer.location_bucket(location)
-        return SystemOneResult(
-            core_score=Scorer.clamp(core),
-            tools_score=Scorer.clamp(tools),
-            contract_score=Scorer.clamp(contract),
-            pay_score=Scorer.clamp(pay),
-            pay_missing=bool(pay_missing),
-            location_bucket=bucket,
+    def build_result(*, answers: dict[str, float | str], missing: set[str] | None = None,
+                     confidence: Any = 0.85, reason: str = "") -> ScoringResult:
+        return ScoringResult(
+            answers={key: (Scorer.clamp(value) if isinstance(value, (int, float)) else str(value))
+                     for key, value in answers.items()},
+            missing=set(missing or set()),
             confidence=Scorer.clamp(confidence),
-            summary_reason=reason or f"Location: {bucket.value}, Core: {Scorer.clamp(core):.2f}",
+            summary_reason=reason,
         )
 
     @staticmethod
@@ -100,11 +79,3 @@ class Scorer(ABC):
         if start < 0 or end <= start:
             raise AIError(f"scorer returned no JSON object: {text[:200]!r}")
         return json.loads(text[start:end + 1])
-
-    @staticmethod
-    def missing_level(question: dict) -> int:
-        """Index of the pay level that means 'not stated', inferred from the criteria text."""
-        for i, criterion in enumerate(question.get("criteria", [])):
-            if "not stated" in str(criterion).lower():
-                return i
-        return 1

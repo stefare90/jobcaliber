@@ -1,47 +1,80 @@
-# jobcaliber config template — v9 profile-driven, English-only.
-version: 10
+# jobcaliber config template — v11 (search inputs + generic criteria).
+# Copy to config.yaml (gitignored) and edit. Every criterion carries its own question.
+version: 11
 db_path: "./data/jobs.db"
 
-# 1. Profile
-profile:
+# 1. Search inputs (the only bound part: they drive the boards).
+search:
   titles: ["Backend Engineer", "Embedded Software Engineer", "Python Developer"]
-  seniority: "mid"
-  contract_type: "permanent"
-  skills:
-    core: { "c++": 5, "python": 4 }
-    tools: ["Qt", "FastAPI", "CMake"]
-  location:
+  locations:
     # Passed to the boards verbatim: use the spelling the board understands.
-    primary: "Turin, Italy"
-    remote_query: "Italy"
-    hybrid_max_km: 40
+    - { query: "Turin, Italy", remote: false }
+    - { query: "Italy", remote: true }
 
-# 2. Evaluation & filtering rules
-job_filters:
+# 2. Criteria: weighted dimensions (weight > 0) or hard gates (gate), each with a question.
+#    Add your own: a new key + its question is all it takes.
+criteria:
   core_skills:
-    mode: "weighted"
     weight: 45
-  tools:
-    mode: "weighted"
-    weight: 20
-  contract:
-    mode: "weighted"
-    weight: 20
-  pay:
-    mode: "hybrid"
-    weight: 15
-    target_annual: 40000
-    min_annual: 38000
-    hard_drop_tolerance: 0.05
-  location:
-    mode: "hard_gate"
-    weight: 0
-    # Used only when mode is 'weighted' (weight > 0).
-    bucket_scores:
-      { primary: 1.0, remote: 1.0, hybrid: 0.8, unknown: 0.5, elsewhere: 0.0 }
+    question:
+      type: "score"
+      instructions: "How well do the required skills match the candidate's core stack (c++ level 5, python level 4)?"
+      levels: ["Not stated", "No match", "Weak match", "Good match", "Perfect match"]
+      missing: 0
 
-  # Confidence multipliers applied when a key field is missing.
-  confidence_penalties: { location_unknown: 0.8, pay_missing: 0.85 }
+  tools:
+    weight: 20
+    question:
+      type: "score"
+      instructions: "How many of the candidate's preferred tools are covered (Qt, FastAPI, CMake, Git)?"
+      levels: ["Not stated", "None covered", "One minor overlap", "About half", "All or most"]
+      missing: 0
+
+  contract:
+    weight: 20
+    question:
+      type: "score"
+      instructions: "How well do contract type and seniority fit? Wanted: permanent, mid-senior."
+      levels: ["Not stated", "Internship or junior-only", "Unclear or fixed-term", "Coherent permanent match"]
+      missing: 0
+
+  pay:
+    weight: 15
+    question:
+      type: "score"
+      instructions: "How close is the stated annual gross salary to 40.000 EUR?"
+      levels: ["Not stated", "Clearly below", "Plausible", "At target", "Above target"]
+      missing: 0
+
+  location:
+    gate: { accept: ["primary", "remote", "hybrid"] }
+    question:
+      type: "choice"
+      instructions: "Which workplace arrangement applies to this job?"
+      options:
+        primary: "Onsite or hybrid in Turin, Italy"
+        remote: "Fully remote"
+        hybrid: "Hybrid with flexible attendance near Turin, Italy"
+        elsewhere: "Onsite outside the area and not remote"
+        unknown: "No location or arrangement information available"
+      missing: "unknown"
+
+  salary_stated:
+    gate: true
+    question:
+      type: "choice"
+      instructions: >
+        Does the offer state a salary of at least 38.000 EUR gross per year?
+        Answer "no" ONLY if a salary is stated and it is lower; if the posting
+        states no salary at all, answer "missing".
+      options:
+        "yes": "States 38.000 EUR gross/year or more"
+        "no": "States less than 38.000 EUR gross/year"
+        "missing": "No salary stated"
+      missing: "missing"
+
+# Confidence multipliers applied when a criterion answer is missing.
+penalties: { location: 0.8, pay: 0.85 }
 
 # 3. Notification delivery & thresholds
 notifications:
@@ -57,24 +90,21 @@ notifications:
 scraping:
   boards: ["linkedin", "indeed"]
   country: "italy"
-  hours_old: 24
+  hours_old: null
   page_size: 50
   # Hard ceiling per query/board. Pagination also stops early when a page adds no new posting.
-  board_max_results: { linkedin: 500, indeed: 500 }
+  board_max_results: { linkedin: 300, indeed: 500 }
   job_type: "fulltime"
 
 # 5. Automation schedule
 schedule:
-  scrape_times: ["08:00", "13:00", "19:00"]
+  scrape_times: ["08:00"]
   backup_time: "03:00"
 
 # 6. AI engines, roles, and prompt overrides.
-# A decision engine (kind decision) decides; LLM engines (kind llm) refine
-# search titles and write the explainer. The scorer role accepts either kind
-# (decision -> prompts/scoring_systemone, llm -> prompts/scoring_llm).
-# Available kinds/apis:
-#   kind: decision -> api: systemone   (rizzo-flow, Jev, laya)
-#   kind: llm        -> api: openai   (Ollama /v1, OpenRouter, OpenAI)
+# Local rizzo-flow (Jev wire protocol) is the scorer:
+#   cd ~/rizzo-flow && uv run rizzo serve --port 8017 --device auto --quant q4_k_m
+# Jev (opencode gateway, free) is kept as an alternative scorer; set OPENCODE_API_KEY.
 ai:
   prompts_dir: "prompts"
   engines:
@@ -89,7 +119,7 @@ ai:
       base_url: "https://opencode.ai/inference"
       model: "jev-1.13-free"
       api_key_env: "OPENCODE_API_KEY"
-      # Retry only transient transport failures (429/5xx); throttle_s paces every request.
+      # The free tier answers 429 in bursts: pace the calls and retry transient failures.
       throttle_s: 0.5
       retry: { max_attempts: 5, base_delay_s: 2.0, max_delay_s: 30.0 }
     local_llm:
@@ -97,12 +127,10 @@ ai:
       api: "openai"
       base_url: "http://localhost:11434/v1"
       model: "qwen3:8b"
-      # qwen3 chain-of-thought eats the whole output budget and never emits the JSON.
       options: { reasoning_effort: "none" }
     opencode_llm:
       kind: "llm"
       api: "openai"
-      # opencode-go channel: /inference/v1 only serves the in-app free tier (403).
       base_url: "https://opencode.ai/inference/go/v1"
       model: "deepseek-v4.1-flash"
       api_key_env: "OPENCODE_API_KEY"
@@ -112,6 +140,6 @@ ai:
     scorer: "rizzo"
     explainer: "local_llm"
     query_expander: "local_llm"
-  # Override any default prompt (prompts/<kind>/default.<ext>) with a custom file.
-  # Example: scoring_systemone: "italy_software"
+  # Override a prose prompt: prompts/explainer/<name>.md, prompts/query_expander/<name>.md.
+  # Scoring rubrics are projected from `criteria` above, not read from files.
   custom_prompts: {}

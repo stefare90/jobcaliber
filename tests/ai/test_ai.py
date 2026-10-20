@@ -15,25 +15,15 @@ def test_render_replaces_placeholders():
     assert render("Hello {{name}} {{missing}}", {"name": "world"}) == "Hello world {{missing}}"
 
 
-def test_prompt_store_loads_json_and_renders():
-    store = PromptStore(PROMPTS_DIR)
-    questions = store.load_json("scoring_systemone", {"core_skills": "c++ (lvl 5)", "tools": "Qt",
-                                                       "seniority": "senior", "contract_type": "permanent",
-                                                       "primary_location": "Sardegna"})
-    assert questions["core"]["type"] == "score"
-    assert "c++ (lvl 5)" in questions["core"]["instructions"]
-    assert questions["location"]["criteria"]["primary"].endswith("(Sardegna)")
-
-
 def test_prompt_store_loads_llm_front_matter():
     system, user = PromptStore(PROMPTS_DIR).load_llm("explainer")
     assert system.startswith("You are a concise")
     assert "{{title}}" in user
 
 
-def test_prompt_store_llm_rejects_non_llm_kind():
+def test_prompt_store_llm_rejects_text_kind():
     try:
-        PromptStore(PROMPTS_DIR).load_llm("scoring_systemone")
+        PromptStore(PROMPTS_DIR).load_llm("nope")
         assert False, "expected PromptError"
     except PromptError:
         pass
@@ -109,25 +99,18 @@ def test_ai_clients_resolve_roles_and_names(tmp_path):
     assert isinstance(clients.by_name("sc"), SystemOneClient)
 
 
-def test_ai_clients_validate_scorer_prompt(tmp_path):
-    pdir = tmp_path / "prompts" / "scoring_systemone"
-    pdir.mkdir(parents=True)
-    (pdir / "default.json").write_text(json.dumps({
-        "core": {"type": "score", "criteria": ["a", "b"]},
-        "tools": {"type": "score", "criteria": ["a", "b"]},
-        "contract": {"type": "score", "criteria": ["a", "b"]},
-        "pay": {"type": "score", "criteria": ["low", "Not stated"]},
-        "location": {"type": "choice", "criteria": {"primary": "x", "remote": "x"}},
-    }), encoding="utf-8")
+def test_ai_clients_validate_criteria_when_building_the_scorer(tmp_path):
+    from jobcaliber.config import Criterion, Question
+
     cfg = AIConfig(
         engines={"sc": AIEngine(kind="decision", api="systemone", base_url="x", model="m")},
         roles={"scorer": "sc"},
     )
-    try:
-        AIClients.from_config(cfg, tmp_path)
-        assert False, "expected PromptError"
-    except PromptError:
-        pass
+    clients = AIClients.from_config(cfg, ROOT)
+    bad = {"core": Criterion(weight=10, question=Question(
+        type="choice", instructions="?", options={"a": "a"}, missing="a"))}
+    with pytest.raises(ValueError, match="weighted criterion needs a 'score' question"):
+        clients.scorer(bad)
 
 
 def test_ai_clients_unknown_role_raises(tmp_path):
@@ -139,17 +122,22 @@ def test_ai_clients_unknown_role_raises(tmp_path):
         pass
 
 
+def make_criteria():
+    from jobcaliber.config import Criterion, Question
+    return {"core_skills": Criterion(weight=45, question=Question(
+        type="score", instructions="how good?", levels=["Not stated", "No", "Yes"], missing=0))}
+
+
 def test_ai_clients_build_scorer_for_both_kinds(tmp_path):
-    from jobcaliber.config import LocationPrefs, Profile, Skills
     from jobcaliber.scoring import LLMScorer, Scorer, SystemOneScorer
 
-    profile = Profile(titles=["Dev"], skills=Skills(core={"c++": 5}), location=LocationPrefs(primary="Sardegna"))
+    criteria = make_criteria()
 
     system_one_cfg = AIConfig(
         engines={"sc": AIEngine(kind="decision", api="systemone", base_url="x", model="m")},
         roles={"scorer": "sc"},
     )
-    system_one_scorer = AIClients.from_config(system_one_cfg, ROOT).scorer(profile)
+    system_one_scorer = AIClients.from_config(system_one_cfg, ROOT).scorer(criteria)
     assert isinstance(system_one_scorer, SystemOneScorer)
     assert isinstance(system_one_scorer, Scorer)
 
@@ -157,7 +145,7 @@ def test_ai_clients_build_scorer_for_both_kinds(tmp_path):
         engines={"ll": AIEngine(kind="llm", api="openai", base_url="x", model="m")},
         roles={"scorer": "ll"},
     )
-    llm_scorer = AIClients.from_config(llm_cfg, ROOT).scorer(profile)
+    llm_scorer = AIClients.from_config(llm_cfg, ROOT).scorer(criteria)
     assert isinstance(llm_scorer, LLMScorer)
     assert isinstance(llm_scorer, Scorer)
 

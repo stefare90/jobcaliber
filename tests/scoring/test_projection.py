@@ -65,19 +65,23 @@ def test_llm_prompt_mentions_every_key_and_instruction(factory):
         assert criterion.question.instructions in user
 
 
-def test_score_projection_carries_levels_and_missing_index():
+def test_score_projection_carries_only_wire_fields():
     questions = build_systemone_questions(one_criterion())
-    assert questions["core_skills"]["type"] == "score"
-    assert questions["core_skills"]["criteria"] == ["Not stated", "Low", "Good", "Perfect"]
-    assert questions["core_skills"]["missing_level"] == 0
+    assert questions["core_skills"] == {
+        "type": "score",
+        "instructions": "how good is the stack?",
+        "criteria": ["Not stated", "Low", "Good", "Perfect"],
+    }
 
 
-def test_choice_projection_carries_options_and_missing_key():
+def test_choice_projection_carries_only_wire_fields():
     criteria = {"salary_ok": Criterion(gate=True, question=choice_q())}
     questions = build_systemone_questions(criteria)
-    assert questions["salary_ok"]["type"] == "choice"
-    assert questions["salary_ok"]["criteria"] == {"yes": "yes", "no": "no", "missing": "not stated"}
-    assert questions["salary_ok"]["missing_choice"] == "missing"
+    assert questions["salary_ok"] == {
+        "type": "choice",
+        "instructions": "is it acceptable?",
+        "criteria": {"yes": "yes", "no": "no", "missing": "not stated"},
+    }
 
 
 def test_llm_prompt_only_leaves_posting_placeholders():

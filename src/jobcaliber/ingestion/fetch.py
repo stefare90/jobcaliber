@@ -1,4 +1,4 @@
-"""Profile-driven job fetch via JobSpy. Scraping only: no gates, no scoring."""
+"""Search-driven job fetch via JobSpy. Scraping only: no gates, no scoring."""
 from __future__ import annotations
 
 import math
@@ -6,7 +6,7 @@ import time
 
 from jobspy import scrape_jobs
 
-from jobcaliber.config import Profile, Scraping
+from jobcaliber.config import Scraping, Search
 from jobcaliber.models import FetchStats, JobPosting, Query
 
 POLITENESS_GAP_S = 2
@@ -77,18 +77,12 @@ class Fetcher:
     def page_size(self) -> int:
         return self.scraping.page_size
 
-    def build_queries(self, profile: Profile) -> list[Query]:
-        location = profile.location
-        queries = [
-            Query(keywords=title.strip(), location=location.primary, role=title, remote=False)
-            for title in profile.titles
+    def build_queries(self, search: Search) -> list[Query]:
+        return [
+            Query(keywords=title.strip(), location=location.query, role=title, remote=location.remote)
+            for title in search.titles
+            for location in search.locations
         ]
-        if location.remote_query:
-            queries += [
-                Query(keywords=title.strip(), location=location.remote_query, role=title, remote=True)
-                for title in profile.titles
-            ]
-        return queries
 
     def _scrape(self, **kwargs):
         return scrape_jobs(**kwargs)
@@ -138,8 +132,8 @@ class Fetcher:
             self.sleep_fn(POLITENESS_GAP_S)
         return postings, stats
 
-    def fetch_all(self, profile: Profile) -> tuple[list[JobPosting], dict[str, FetchStats]]:
-        queries = self.build_queries(profile)
+    def fetch_all(self, search: Search) -> tuple[list[JobPosting], dict[str, FetchStats]]:
+        queries = self.build_queries(search)
         all_postings: list[JobPosting] = []
         per_board: dict[str, FetchStats] = {b: FetchStats() for b in self.boards}
         for qi, query in enumerate(queries, start=1):

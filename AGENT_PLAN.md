@@ -346,3 +346,19 @@ committing `config.yaml`.
   attempts / 2s base / 30s cap. Tests 64/64 green. Not yet exercised against the real
   endpoint: the previous 924-posting jev run scored only 263 and then got 429 on every
   request from position 264 onwards.
+- [x] Config v11 + generic scoring (2026-10-20) — `Profile`/`Skills`/`JobFilters`/
+  `SystemOneResult`/`LocationBucket` removed. Config is now `search` (the only bound part) +
+  free-keyed `criteria`, each carrying its own question, plus `penalties`. `weight > 0` xor
+  `gate` (`true` / `{accept}` / `{min_score}`), 10 validators fail fast, `extra="forbid"`.
+  Rubrics are **projected** from `criteria` (`scoring/projection/`) into the System One JSON
+  and the LLM markdown, so the two formats cannot drift and no rubric file has to be
+  regenerated when a value changes; the shipped default rubric files were deleted. The wire
+  rejects extra fields, so `missing` markers stay in the config. Evaluator: gates first
+  (missing never drops), then the weighted sum. Real end-to-end: rizzo 5/5 scored (3.83s
+  mean, 1 REVIEW), qwen3 5/5 (14.03s mean). Tests 97/97 green.
+  - Calibration finding #1: a model-judged numeric gate (`salary_stated`, "at least 38k")
+    answered `no` on a posting with no salary (it read postal code `07026` as a figure) and
+    dropped it. Sharpened the question text; after that, no-salary postings correctly answer
+    `missing` and are not dropped. Still the weakest link: gates that parse numbers are
+    probabilistic, `pay` missing already forces REVIEW, so this gate is a candidate for
+    removal during calibration.

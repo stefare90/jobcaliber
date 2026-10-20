@@ -52,12 +52,15 @@ Nothing is marked complete without proof of testing:
 
 ### A. Strongly Typed Domain Models
 - Never pass raw, unstructured dictionaries across module boundaries.
-- Domain entities (`JobPosting`, `SystemOneResult`, `EvaluationResult`, `FetchStats`, `Query`)
+- Domain entities (`JobPosting`, `ScoringResult`, `EvaluationResult`, `FetchStats`, `Query`)
   live in `src/jobcaliber/models.py` as typed dataclasses.
-- Configuration is typed too: all config classes (`AppConfig`, `Profile`, `JobFilters`,
-  `Notifications`, `Scraping`, `Schedule`, `AIConfig`, `AIEngine`) live in
+- Configuration is typed too: `AppConfig` (`search`, `criteria`, `penalties`, `notifications`,
+  `scraping`, `schedule`, `ai`) plus `Criterion`/`Question`/`GateAccept`/`GateMinScore` live in
   `src/jobcaliber/config.py` as Pydantic v2 models, loaded by `load_config()`. No module
   takes a config `dict`.
+- `criteria` is free-keyed but strictly shaped: `weight > 0` (weighted) xor `gate`, and every
+  criterion carries its own question. Adding a criterion is data, never code; adding a *kind*
+  of gate is code. No criterion name is hardcoded in the pipeline.
 
 ### B. Pure Pipeline Architecture
 The source tree mirrors the pipeline stages (`ingestion/` -> `scoring/` -> `delivery/`,
@@ -72,11 +75,14 @@ plus the cross-cutting `ai/` and the `app/` wiring):
      separate files (`system_one.py`, `llm.py`) and self-register by engine kind via
      `@Scorer.register(kind)`. Callers never branch on kind; new scorers (e.g. a
      deterministic one) are a new file + registration, no caller changes.
-   - Evaluates the 5 atomic questions (`core`, `tools`, `pay`, `contract`, `location`).
+   - Evaluates one question per configured criterion; the rubric is projected from
+     `criteria` into the engine's format (`scoring/projection/`), so the System One JSON and
+     the LLM markdown can never drift apart. No rubric files on disk for scoring.
    - Agnostic to language and profession: zero hardcoded regex/keywords for cities, salaries, or roles.
-3. **Evaluator (`scoring/evaluator.py`)**: applies config rules (`job_filters`) onto `SystemOneResult`.
-   - Executes hard gates (`DROP`), review routing (`REVIEW`), and weighted scoring ($0..100$).
-   - Calculates combined confidence with missing data penalties.
+3. **Evaluator (`scoring/evaluator.py`)**: applies config rules onto `ScoringResult`.
+   - Gates first (an explicit negative answer drops; a *missing* answer never drops), then the
+     weighted 0-100 over `weight > 0` criteria, then review routing.
+   - Calculates combined confidence with the per-criterion `penalties` for missing answers.
 4. **Storage & Delivery**: SQLite persistence + Telegram notifications (idempotent, never re-notify).
 
 ### C. System One Model Integration (rizzo-flow / Jev / laya)
@@ -95,7 +101,7 @@ plus the cross-cutting `ai/` and the `app/` wiring):
   `explainer`, `query_expander`) to an engine name. A role accepts the kinds it can
   implement (`scorer`: decision or llm; `explainer`/`query_expander`: llm).
   `AIClients` (`src/jobcaliber/ai/`) builds the transports once at startup and exposes
-  the role services (`scorer(profile)`, `explainer()`, `query_expander()`); services
+  the role services (`scorer(criteria)`, `explainer()`, `query_expander()`); services
   receive a resolved client, not a config.
 - Provider quirks that only affect the transport (a required routing header, a versioned
   base path) live in `ai.engines.<name>.headers` / `base_url`, never in client code.

@@ -1,6 +1,6 @@
 """Spike 01 — fetch coverage: how many usable offers each query x board returns.
 
-Reads the query matrix from the profile, fetches every board sequentially, and writes:
+Reads the query matrix from `search`, fetches every board sequentially, and writes:
   input/queries.json                                  the matrix actually used
   output/raw/q<idx>_<board>.json                      raw postings, one file per query/board
   output/report.md                                    coverage report + pass bar
@@ -251,7 +251,7 @@ def main() -> int:
             flush=True,
         ),
     )
-    queries = fetcher.build_queries(config.profile)
+    queries = fetcher.build_queries(config.search)
     snapshot_path = write_queries_snapshot(queries, fetcher, config)
     print(f"queries: {len(queries)} -> {snapshot_path}")
 
