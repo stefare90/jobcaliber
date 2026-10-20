@@ -372,3 +372,12 @@ committing `config.yaml`.
   above 60, and the pool produced no `apply`.
   - Trap recorded: YAML 1.1 reads bare `yes`/`no` as booleans — quote them in config options
     **and** in `labels.yaml` verdicts.
+- [x] Location gate fixed (2026-10-20) — the question accepted almost every posting outside the
+  home area (Rome/Milan/Turin hybrid → `accepted`), so the gate was effectively off. Cause: the
+  "accepted" option bundled proximity with arrangement ("on-site or hybrid in X, or fully remote
+  within Italy") and the model matched "within Italy". Rewritten as a proximity judgement with
+  the home area injected ("any on-site or hybrid work in a city outside X is NOT acceptable"),
+  verified 8/8 on hand-checked postings (was 1/8). Result on the 61 labelled: location drops
+  went 5 -> 26 (25 `no`, 1 `maybe` that was Rome + smart working, which the user's own hybrid
+  rule says to reject), DROP/REVIEW 39/22 -> 48/13. Lesson: ask about the physical location, and
+  never bundle two dimensions in one option.

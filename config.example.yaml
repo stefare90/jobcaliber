@@ -85,13 +85,12 @@ criteria:
     question:
       type: "choice"
       instructions: >
-        Is this job acceptable to the candidate on location? The candidate wants to work
-        in {{search.on_site_locations}} or fully remote within {{search.remote_locations}},
-        and cannot relocate. Judge where the work must actually be done, using the
-        declared location and any arrangement stated in the description.
+        Is this job acceptable on location? The candidate lives in
+        {{search.on_site_locations}} and wants to work there or 100% remote. Any on-site
+        or hybrid work in a city outside {{search.on_site_locations}} is NOT acceptable.
       options:
-        accepted: "On-site or hybrid in {{search.on_site_locations}}, or fully remote within {{search.remote_locations}}"
-        rejected: "Requires on-site or hybrid attendance outside {{search.on_site_locations}}"
+        accepted: "Work is on-site or hybrid in {{search.on_site_locations}}, or 100% remote"
+        rejected: "Work requires on-site or hybrid presence in a city outside {{search.on_site_locations}}, even if some remote days are offered"
         unknown: "The posting does not say where the work must be done"
       missing: "unknown"
 
