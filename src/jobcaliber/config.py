@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -105,6 +105,140 @@ class Profile(BaseModel):
     contract_type: str = "permanent"
     skills: Skills = Field(default_factory=Skills)
     location: LocationPrefs
+
+
+class GateAccept(BaseModel):
+    accept: list[str]
+
+
+class GateMinScore(BaseModel):
+    min_score: float
+
+
+class SearchLocation(BaseModel):
+    """A board query location: `query` is sent to the board verbatim."""
+
+    query: str
+    remote: bool = False
+
+
+class Search(BaseModel):
+    titles: list[str] = Field(default_factory=list)
+    locations: list[SearchLocation] = Field(default_factory=list)
+
+
+class Question(BaseModel):
+    """The scoring question for one criterion; the answer type fixes how it is used."""
+
+    type: Literal["score", "choice"]
+    instructions: str
+    levels: list[str] = Field(default_factory=list)
+    options: dict[str, str] = Field(default_factory=dict)
+    missing: int | str
+
+
+class Criterion(BaseModel):
+    """Weighted dimension (`weight > 0`) or hard gate (`gate`), never both."""
+
+    weight: float = 0.0
+    gate: bool | GateAccept | GateMinScore | None = None
+    question: Question
+
+
+BOOLEAN_OPTIONS = {"yes", "no", "missing"}
+
+
+def validate_search(search: Search) -> None:
+    if not [t for t in search.titles if t.strip()]:
+        raise ValueError("search needs at least one non-empty title")
+    if not [loc for loc in search.locations if loc.query.strip()]:
+        raise ValueError("search needs at least one non-empty location query")
+
+
+def _validate_question(key: str, criterion: Criterion) -> None:
+    question = criterion.question
+    if question.type == "score":
+        if len(question.levels) < 2:
+            raise ValueError(
+                f"criterion '{key}': a score question needs at least 2 levels, got {len(question.levels)}"
+            )
+        if not isinstance(question.missing, int) or isinstance(question.missing, bool):
+            raise ValueError(
+                f"criterion '{key}': 'missing' must be a level index for a score question, got {question.missing!r}"
+            )
+        if not 0 <= question.missing < len(question.levels):
+            raise ValueError(
+                f"criterion '{key}': 'missing' level index must be within [0, {len(question.levels) - 1}], "
+                f"got {question.missing}"
+            )
+    else:
+        if not question.options:
+            raise ValueError(f"criterion '{key}': a choice question needs at least one option")
+        if not isinstance(question.missing, str) or question.missing not in question.options:
+            raise ValueError(
+                f"criterion '{key}': 'missing' must be one of the options {sorted(question.options)}, "
+                f"got {question.missing!r}"
+            )
+
+
+def _validate_gate(key: str, criterion: Criterion) -> None:
+    gate, options = criterion.gate, criterion.question.options
+    if gate is True:
+        if criterion.question.type != "choice" or set(options) != BOOLEAN_OPTIONS:
+            raise ValueError(
+                f"criterion '{key}': a boolean gate needs a 'choice' question with exactly the options "
+                f"yes/no/missing, got type '{criterion.question.type}' and options {sorted(options)}"
+            )
+        return
+    if isinstance(gate, GateAccept):
+        if criterion.question.type != "choice":
+            raise ValueError(
+                f"criterion '{key}': gate.accept needs a 'choice' question, got '{criterion.question.type}'"
+            )
+        if not gate.accept:
+            raise ValueError(f"criterion '{key}': gate.accept needs at least one accepted option")
+        unknown = set(gate.accept) - set(options)
+        if unknown:
+            raise ValueError(
+                f"criterion '{key}': gate.accept names {sorted(unknown)} which are not options {sorted(options)}"
+            )
+        if criterion.question.missing in gate.accept:
+            raise ValueError(
+                f"criterion '{key}': the missing option '{criterion.question.missing}' cannot be accepted "
+                f"by a gate (a missing answer must never drop, and never pass either)"
+            )
+        return
+    if isinstance(gate, GateMinScore):
+        if criterion.question.type != "score":
+            raise ValueError(
+                f"criterion '{key}': gate.min_score needs a 'score' question, got '{criterion.question.type}'"
+            )
+        if not 0.0 <= gate.min_score <= 1.0:
+            raise ValueError(f"criterion '{key}': gate.min_score must be within [0, 1], got {gate.min_score}")
+
+
+def validate_criteria(criteria: dict[str, Criterion], penalties: dict[str, float] | None = None) -> None:
+    if not criteria:
+        raise ValueError("at least one criterion is required")
+    for key, criterion in criteria.items():
+        has_gate = criterion.gate is not None and criterion.gate is not False
+        if criterion.weight > 0 and has_gate:
+            raise ValueError(f"criterion '{key}': set either weight > 0 or a gate, not both")
+        if criterion.weight <= 0 and not has_gate:
+            raise ValueError(f"criterion '{key}': set either weight > 0 or a gate")
+        if criterion.weight > 0 and criterion.question.type != "score":
+            raise ValueError(
+                f"criterion '{key}': a weighted criterion needs a 'score' question, "
+                f"got '{criterion.question.type}'"
+            )
+        _validate_question(key, criterion)
+        if has_gate:
+            _validate_gate(key, criterion)
+    for key, penalty in (penalties or {}).items():
+        if key not in criteria:
+            raise ValueError(f"penalty for unknown criterion '{key}'; known: {sorted(criteria)}")
+        if not 0.0 < penalty <= 1.0:
+            raise ValueError(f"criterion '{key}': penalty must be within (0, 1], got {penalty}")
 
 
 class FilterParam(BaseModel):
