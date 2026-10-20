@@ -44,13 +44,13 @@ class SystemOneScorer(Scorer):
             if question.type == "score":
                 levels = max(len(question.levels) - 1, 1)
                 level = int(raw.get("score", 0))
-                if level == question.missing:
+                if question.missing is not None and level == question.missing:
                     answers[key], _ = 0.5, missing.add(key)
                 else:
                     answers[key] = self.clamp(level / levels)
             else:
-                choice = str(raw.get("choice", question.missing))
-                if choice == question.missing:
+                choice = str(raw.get("choice", question.missing or ""))
+                if question.missing is not None and choice == question.missing:
                     missing.add(key)
                 answers[key] = choice
         confidences = [

@@ -106,7 +106,7 @@ class Question(BaseModel):
     instructions: str
     levels: list[str] = Field(default_factory=list)
     options: dict[str, str] = Field(default_factory=dict)
-    missing: int | str
+    missing: int | str | None = None
 
 
 class Criterion(BaseModel):
@@ -134,9 +134,12 @@ def _validate_question(key: str, criterion: Criterion) -> None:
             raise ValueError(
                 f"criterion '{key}': a score question needs at least 2 levels, got {len(question.levels)}"
             )
+        if question.missing is None:
+            return
         if not isinstance(question.missing, int) or isinstance(question.missing, bool):
             raise ValueError(
-                f"criterion '{key}': 'missing' must be a level index for a score question, got {question.missing!r}"
+                f"criterion '{key}': 'missing' must be a level index or null for a score question, "
+                f"got {question.missing!r}"
             )
         if not 0 <= question.missing < len(question.levels):
             raise ValueError(
@@ -146,6 +149,8 @@ def _validate_question(key: str, criterion: Criterion) -> None:
     else:
         if not question.options:
             raise ValueError(f"criterion '{key}': a choice question needs at least one option")
+        if question.missing is None:
+            return
         if not isinstance(question.missing, str) or question.missing not in question.options:
             raise ValueError(
                 f"criterion '{key}': 'missing' must be one of the options {sorted(question.options)}, "
@@ -174,7 +179,7 @@ def _validate_gate(key: str, criterion: Criterion) -> None:
             raise ValueError(
                 f"criterion '{key}': gate.accept names {sorted(unknown)} which are not options {sorted(options)}"
             )
-        if criterion.question.missing in gate.accept:
+        if criterion.question.missing is not None and criterion.question.missing in gate.accept:
             raise ValueError(
                 f"criterion '{key}': the missing option '{criterion.question.missing}' cannot be accepted "
                 f"by a gate (a missing answer must never drop, and never pass either)"

@@ -115,7 +115,7 @@ labels:
     company: "Entando"
     query: "q3"
     board: "indeed"
-    verdict: "maybe"
+    verdict: "no"
     reason: "senior fullstack, Cagliari, Java/React stack"
   - idx: 15
     external_id: "https://www.linkedin.com/jobs/view/4449541815"
@@ -155,7 +155,7 @@ labels:
     company: "Var Group"
     query: "q4"
     board: "linkedin"
-    verdict: "maybe"
+    verdict: "no"
     reason: "SQL Server DBA, Cagliari hybrid, 37-40k, but h24 on-call"
   - idx: 20
     external_id: "https://it.indeed.com/viewjob?jk=0e3598512b4ac323"
@@ -196,7 +196,7 @@ labels:
     query: "q5"
     board: "indeed"
     verdict: "no"
-    reason: "test-bench developer, right stack but Colleferro onsite"
+    reason: "test-bench dev, right stack, smart working listed (evaluate)"
   - idx: 25
     external_id: "https://it.indeed.com/viewjob?jk=758496b2a0c9cbfe"
     title: "Software Engineer"
@@ -212,7 +212,7 @@ labels:
     query: "q5"
     board: "linkedin"
     verdict: "no"
-    reason: "Java/Angular, Turin onsite"
+    reason: "fully flexible remote/hybrid/on-site per the posting, Turin base. No core skill"
   - idx: 27
     external_id: "https://www.linkedin.com/jobs/view/4460073201"
     title: ".Net Developer"
@@ -227,8 +227,8 @@ labels:
     company: "Sysdig"
     query: "q5"
     board: "linkedin"
-    verdict: "maybe"
-    reason: "senior platform engineer, remote (location blank), Go/Python"
+    verdict: "no"
+    reason: "senior platform engineer, remote (location blank), no core skill"
   - idx: 29
     external_id: "https://www.linkedin.com/jobs/view/4473150868"
     title: "Software Engineer"
@@ -267,8 +267,8 @@ labels:
     company: "TPS Group"
     query: "q6"
     board: "linkedin"
-    verdict: "no"
-    reason: "embedded real-time, right stack but Rome onsite"
+    verdict: "maybe"
+    reason: "embedded real-time, right stack, smart working listed (evaluate)"
   - idx: 34
     external_id: "https://www.linkedin.com/jobs/view/4477576223"
     title: "ENGINEER, DESIGN"
@@ -307,7 +307,7 @@ labels:
     company: "Elty"
     query: "q7"
     board: "indeed"
-    verdict: "maybe"
+    verdict: "no"
     reason: "fullstack Java/React, remote, but freelance P.IVA"
   - idx: 39
     external_id: "https://it.indeed.com/viewjob?jk=2bd60995dd44b3cc"
@@ -339,7 +339,7 @@ labels:
     company: "Kronia"
     query: "q7"
     board: "indeed"
-    verdict: "maybe"
+    verdict: "no"
     reason: "senior backend Java/AWS, remote Europe"
   - idx: 43
     external_id: "https://it.indeed.com/viewjob?jk=e149fab6c906802c"
@@ -347,8 +347,8 @@ labels:
     company: "Ergon Soluzioni"
     query: "q7"
     board: "indeed"
-    verdict: "maybe"
-    reason: "senior .NET, fully remote"
+    verdict: "no"
+    reason: "senior .NET, fully remote. No core skills"
   - idx: 44
     external_id: "https://www.linkedin.com/jobs/view/4442688373"
     title: "Senior Software Developer"
@@ -356,7 +356,7 @@ labels:
     query: "q7"
     board: "linkedin"
     verdict: "no"
-    reason: "C++ CAD developer, ideal stack but Bologna onsite"
+    reason: "C# CAD developer, ideal stack but Bologna onsite"
   - idx: 45
     external_id: "https://www.linkedin.com/jobs/view/4447338545"
     title: "Fullstack Developer"
@@ -483,8 +483,8 @@ labels:
     company: "Proxima Group"
     query: "q8"
     board: "linkedin"
-    verdict: "maybe"
-    reason: "backend developer, full remote Italy, 3y experience"
+    verdict: "no"
+    reason: "backend developer, full remote Italy, 3y experience. No core skills"
   - idx: 61
     external_id: "https://www.linkedin.com/jobs/view/4480396422"
     title: ".NET Developer Junior"

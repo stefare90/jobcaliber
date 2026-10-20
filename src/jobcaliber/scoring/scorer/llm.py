@@ -32,8 +32,11 @@ class LLMScorer(Scorer):
         for key, criterion in self.criteria.items():
             value = parsed.get(key)
             if key in missing or value is None:
-                missing.add(key)
-                answers[key] = 0.5 if criterion.question.type == "score" else criterion.question.missing
+                if criterion.question.missing is None:
+                    answers[key] = 0.0 if criterion.question.type == "score" else ""
+                else:
+                    missing.add(key)
+                    answers[key] = 0.5 if criterion.question.type == "score" else criterion.question.missing
             elif criterion.question.type == "score":
                 answers[key] = self.clamp(value)
             else:

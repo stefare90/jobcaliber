@@ -19,16 +19,30 @@ criteria:
     question:
       type: "score"
       instructions: "How well do the required skills match the candidate's core stack (c++ level 5, python level 4)?"
-      levels: ["Not stated", "No match", "Weak match", "Good match", "Perfect match"]
-      missing: 0
+      levels:
+        [
+          "Not mentioned: the posting never refers to c++ or python",
+          "Mentions the stack only as a nice-to-have, not required",
+          "Requires one core skill (c++ or python) at any level",
+          "Requires core skills as a main part of the role",
+          "Core skills are the primary requirement",
+        ]
+      missing: null
 
   tools:
     weight: 20
     question:
       type: "score"
       instructions: "How many of the candidate's preferred tools are covered (Qt, FastAPI, CMake, Git)?"
-      levels: ["Not stated", "None covered", "One minor overlap", "About half", "All or most"]
-      missing: 0
+      levels:
+        [
+          "None of the preferred tools are mentioned",
+          "One minor overlap",
+          "About half covered",
+          "Most covered",
+          "All or most covered",
+        ]
+      missing: null
 
   contract:
     weight: 20
@@ -47,31 +61,20 @@ criteria:
       missing: 0
 
   location:
-    gate: { accept: ["primary", "remote", "hybrid"] }
-    question:
-      type: "choice"
-      instructions: "Which workplace arrangement applies to this job?"
-      options:
-        primary: "Onsite or hybrid in Turin, Italy"
-        remote: "Fully remote"
-        hybrid: "Hybrid with flexible attendance near Turin, Italy"
-        elsewhere: "Onsite outside the area and not remote"
-        unknown: "No location or arrangement information available"
-      missing: "unknown"
-
-  salary_stated:
-    gate: true
+    gate: { accept: ["accepted"] }
     question:
       type: "choice"
       instructions: >
-        Does the offer state a salary of at least 38.000 EUR gross per year?
-        Answer "no" ONLY if a salary is stated and it is lower; if the posting
-        states no salary at all, answer "missing".
+        Is this job acceptable to the candidate on location? The candidate lives in
+        Sardinia, Italy, wants to work there or fully remote, and cannot relocate.
+        Judge where the work must actually be done, using the declared location and
+        any arrangement stated in the description.
       options:
-        "yes": "States 38.000 EUR gross/year or more"
-        "no": "States less than 38.000 EUR gross/year"
-        "missing": "No salary stated"
-      missing: "missing"
+        accepted: "On-site or hybrid in Sardinia, or fully remote from Italy"
+        rejected: "Requires on-site or hybrid attendance outside Sardinia"
+        unknown: "The posting does not say where the work must be done"
+      missing: "unknown"
+
 
 # Confidence multipliers applied when a criterion answer is missing.
 penalties: { location: 0.8, pay: 0.85 }
