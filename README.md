@@ -204,8 +204,9 @@ Pydantic models in `src/jobcaliber/config.py`:
 - `scraping` — `boards`, `country`, `hours_old`, `page_size`,
   `board_max_results` (per-board ceiling, e.g. `{linkedin: 300, indeed: 500}`), `job_type`.
 - `schedule` — `scrape_times`, `backup_time`.
-- `ai` — `engines` (`kind`, `api`, `base_url`, `model`, optional `api_key_env` and
-  `headers`), `roles` (`scorer`, `explainer`, `query_expander`), `custom_prompts`.
+- `ai` — `engines` (`kind`, `api`, `base_url`, `model`, optional `api_key_env`, `headers`,
+  `options`, `throttle_s`, `retry`), `roles` (`scorer`, `explainer`, `query_expander`),
+  `custom_prompts`.
 
 Values whose keys mirror a domain enum (e.g. `location.bucket_scores` vs
 `LocationBucket`) and prompt criteria are validated at load/startup, never silently

@@ -339,3 +339,10 @@ committing `config.yaml`.
   `openai==2.26.0`), plus `posthog` telemetry and a Chromium/CDP runtime (`browser-harness`,
   `cdp-use`); it is also LLM-driven per call. Would have to live in a separate venv behind a
   subprocess boundary emitting the same posting JSON, opt-in for THIN queries only.
+- [x] Transport retry (2026-10-19) — `AIEngine.retry` (`RetryPolicy`: max_attempts,
+  base_delay_s, max_delay_s) and `AIEngine.throttle_s`. `AIClient._post` retries **only**
+  429/5xx with exponential backoff + jitter, honouring `Retry-After`; 400/401/403 fail at
+  once. `sleep_fn` is injectable so tests never sleep. jev config paced at 0.5s with 5
+  attempts / 2s base / 30s cap. Tests 64/64 green. Not yet exercised against the real
+  endpoint: the previous 924-posting jev run scored only 263 and then got 429 on every
+  request from position 264 onwards.

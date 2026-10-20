@@ -89,6 +89,9 @@ ai:
       base_url: "https://opencode.ai/inference"
       model: "jev-1.13-free"
       api_key_env: "OPENCODE_API_KEY"
+      # Retry only transient transport failures (429/5xx); throttle_s paces every request.
+      throttle_s: 0.5
+      retry: { max_attempts: 5, base_delay_s: 2.0, max_delay_s: 30.0 }
     local_llm:
       kind: "llm"
       api: "openai"

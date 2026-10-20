@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
 from jobcaliber.ai import AIClients, LLMClient, PromptError, PromptStore, SystemOneClient, render
 from jobcaliber.config import AIConfig, AIEngine
@@ -203,3 +204,56 @@ def test_llm_client_sends_configured_options_under_contract_fields():
     assert seen["reasoning_effort"] == "none"
     assert seen["max_tokens"] == 400
     assert seen["model"] == "qwen3:8b"
+
+
+def _retry_client(responses, **engine_kw):
+    calls = {"n": 0}
+    sleeps = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        index = min(calls["n"], len(responses) - 1)
+        calls["n"] += 1
+        return responses[index]
+
+    engine = AIEngine(kind="llm", api="openai", base_url="http://x/v1", model="m", **engine_kw)
+    client = LLMClient(engine, httpx.Client(transport=httpx.MockTransport(handler)), sleep_fn=sleeps.append)
+    return client, calls, sleeps
+
+
+OK = httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+
+def test_post_retries_transient_status_then_succeeds():
+    client, calls, sleeps = _retry_client([httpx.Response(429), httpx.Response(503), OK])
+    assert client.complete("q") == "ok"
+    assert calls["n"] == 3
+    assert len(sleeps) == 2
+
+
+def test_post_gives_up_after_max_attempts():
+    client, calls, _ = _retry_client([httpx.Response(429)], retry={"max_attempts": 3, "base_delay_s": 0.01})
+    with pytest.raises(httpx.HTTPStatusError):
+        client.complete("q")
+    assert calls["n"] == 3
+
+
+def test_post_does_not_retry_a_rejecting_answer():
+    client, calls, sleeps = _retry_client([httpx.Response(401)])
+    with pytest.raises(httpx.HTTPStatusError):
+        client.complete("q")
+    assert calls["n"] == 1
+    assert sleeps == []
+
+
+def test_post_honours_retry_after_header():
+    client, _, sleeps = _retry_client([httpx.Response(429, headers={"Retry-After": "7"}), OK])
+    assert client.complete("q") == "ok"
+    assert sleeps == [7.0]
+
+
+def test_throttle_sleeps_before_every_request():
+    client, calls, sleeps = _retry_client([OK], throttle_s=0.5)
+    client.complete("q")
+    client.complete("q")
+    assert calls["n"] == 2
+    assert sleeps == [0.5, 0.5]

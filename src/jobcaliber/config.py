@@ -24,6 +24,14 @@ ROLE_KINDS: dict[str, set[str]] = {
 }
 
 
+class RetryPolicy(BaseModel):
+    """Retry only transient transport failures (429 / 5xx), never a rejecting answer."""
+
+    max_attempts: int = 3
+    base_delay_s: float = 1.0
+    max_delay_s: float = 20.0
+
+
 class AIEngine(BaseModel):
     kind: str
     api: str
@@ -33,6 +41,8 @@ class AIEngine(BaseModel):
     timeout_s: float = 120.0
     headers: dict[str, str] = Field(default_factory=dict)
     options: dict[str, Any] = Field(default_factory=dict)
+    retry: RetryPolicy = Field(default_factory=RetryPolicy)
+    throttle_s: float = 0.0
 
     @model_validator(mode="after")
     def _validate_kind_api(self) -> "AIEngine":
