@@ -362,3 +362,13 @@ committing `config.yaml`.
     `missing` and are not dropped. Still the weakest link: gates that parse numbers are
     probabilistic, `pay` missing already forces REVIEW, so this gate is a candidate for
     removal during calibration.
+- [x] Spike 03 calibration harness (2026-10-20) — `sample.py` (deterministic stratified sample,
+  seed 20261020, 6 per query/board -> 61 postings), `labels.yaml` (first pass machine-proposed:
+  0 apply / 15 maybe / 46 no, to be approved by the user), `calibrate.py` (per-criterion means
+  + AUC, missing rates, gate drops by verdict, precision per threshold). `engine_benchmark.py`
+  gained `--input` so the calibration sample can be scored directly. rizzo scored all 61 in
+  255s. First findings: `core_skills` missing in 36/61 (level 0 "Not stated" invites "unsure"),
+  `salary_stated` dropped 15/61 with no measured benefit and one `maybe` lost, nothing scores
+  above 60, and the pool produced no `apply`.
+  - Trap recorded: YAML 1.1 reads bare `yes`/`no` as booleans — quote them in config options
+    **and** in `labels.yaml` verdicts.

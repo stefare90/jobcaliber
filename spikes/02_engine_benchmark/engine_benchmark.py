@@ -35,11 +35,12 @@ def load_postings(path: Path = INPUT_PATH) -> list[JobPosting]:
         raise SystemExit(
             f"missing {path}; run spikes/01_fetch_coverage/fetch_coverage.py first"
         )
+    text = path.read_text(encoding="utf-8")
+    rows = json.loads(text) if text.lstrip().startswith("[") else [
+        json.loads(line) for line in text.splitlines() if line.strip()
+    ]
     postings: list[JobPosting] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
+    for row in rows:
         postings.append(
             JobPosting(
                 external_id=row["external_id"],
@@ -119,7 +120,7 @@ def render_report(
 
 def write_results(
     engine_name: str, engine: AIEngine, results: list[tuple[JobPosting, object, object, float]],
-    total: float, failures: int, limit: int,
+    total: float, failures: int, limit: int, dataset: Path = INPUT_PATH,
 ) -> Path:
     payload = {
         "engine": engine_name,
@@ -128,8 +129,8 @@ def write_results(
         "kind": engine.kind,
         "base_url": engine.base_url,
         "options": engine.options,
-        "dataset": INPUT_PATH.name,
-        "dataset_sha": dataset_sha(),
+        "dataset": dataset.name,
+        "dataset_sha": dataset_sha(dataset),
         "limit": limit,
         "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "total_s": round(total, 2),
@@ -158,7 +159,8 @@ def write_results(
 
 
 def run_engine(
-    engine_name: str, postings: list[JobPosting], config: AppConfig, limit: int
+    engine_name: str, postings: list[JobPosting], config: AppConfig, limit: int,
+    dataset: Path = INPUT_PATH,
 ) -> tuple[Path, int, float]:
     ai = AIClients.from_config(config.ai, ROOT)
     engine = config.ai.engines[engine_name]
@@ -192,7 +194,7 @@ def run_engine(
     if results:
         report_path.write_text(render_report(engine_name, engine, results, total), encoding="utf-8")
         print(f"-> {report_path} ({total:.1f}s total, {total / len(results):.2f}s mean)")
-    results_path = write_results(engine_name, engine, results, total, failures, limit)
+    results_path = write_results(engine_name, engine, results, total, failures, limit, dataset)
     print(f"-> {results_path}")
     return report_path, failures, total
 
@@ -201,15 +203,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine", required=True)
     parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--input", type=Path, default=INPUT_PATH,
+                        help="postings file (jsonl, or a json array), e.g. the calibration sample")
     args = parser.parse_args()
 
     _, config = load_config(ROOT)
     if args.engine not in config.ai.engines:
         parser.error(f"unknown engine '{args.engine}'; available: {list(config.ai.engines)}")
 
-    postings = load_postings()[: args.limit]
-    print(f"loaded {len(postings)} postings from {INPUT_PATH.relative_to(ROOT)}")
-    _, failures, _ = run_engine(args.engine, postings, config, args.limit)
+    postings = load_postings(args.input)[: args.limit]
+    print(f"loaded {len(postings)} postings from {args.input}")
+    _, failures, _ = run_engine(args.engine, postings, config, args.limit, args.input)
     return 1 if failures else 0
 
 
