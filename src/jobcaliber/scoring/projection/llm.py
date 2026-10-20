@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from jobcaliber.ai.prompts import render
 from jobcaliber.config import Criterion
 
 SYSTEM = (
@@ -19,18 +20,25 @@ Description:
 {{description}}"""
 
 
-def _criterion_line(key: str, criterion: Criterion) -> str:
+def _criterion_line(key: str, criterion: Criterion, values: dict[str, str]) -> str:
     question = criterion.question
+    instructions = render(question.instructions, values, strict=True)
     if question.type == "score":
-        spec = f"score 0-1 · {question.instructions}"
+        spec = f"score 0-1 · {instructions}"
     else:
-        spec = f"one of: {' | '.join(question.options)} · {question.instructions}"
+        options = " | ".join(render(opt, values, strict=True) for opt in question.options)
+        spec = f"one of: {options} · {instructions}"
     return f"- {key:<14} {spec}"
 
 
-def build_llm_prompt(criteria: dict[str, Criterion]) -> tuple[str, str]:
-    lines = [POSTING_BLOCK, "", "Criteria (every key must appear in your JSON):"]
-    lines += [_criterion_line(key, criterion) for key, criterion in criteria.items()]
+def build_llm_prompt(criteria: dict[str, Criterion],
+                     values: dict[str, str] | None = None) -> tuple[str, str]:
+    values = values or {}
+    lines = [render(POSTING_BLOCK, {**values, "title": "{{title}}", "company": "{{company}}",
+                                    "location": "{{location}}", "salary": "{{salary}}",
+                                    "description": "{{description}}"}), "",
+             "Criteria (every key must appear in your JSON):"]
+    lines += [_criterion_line(key, criterion, values) for key, criterion in criteria.items()]
     lines += [
         "",
         'If the posting does not state what a key needs, do NOT guess: add the key to "missing".',

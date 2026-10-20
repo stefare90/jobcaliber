@@ -164,7 +164,7 @@ def run_engine(
 ) -> tuple[Path, int, float]:
     ai = AIClients.from_config(config.ai, ROOT)
     engine = config.ai.engines[engine_name]
-    scorer = ai.scorer_for(engine_name, config.criteria)
+    scorer = ai.scorer_for(engine_name, config.criteria, config.search.render_values())
     evaluator = Evaluator(config)
     print(f"=== {engine_name} ({engine.model} @ {engine.base_url}) — {len(postings)} postings ===")
 

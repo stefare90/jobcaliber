@@ -20,8 +20,8 @@ def choice_q(options=("yes", "no", "missing"), missing="missing"):
 
 def make_criteria() -> dict[str, Criterion]:
     return {
-        "core_skills": Criterion(weight=45, question=score_q()),
-        "tools": Criterion(weight=20, question=score_q()),
+        "core_skills": Criterion(min_threshold=0.5, question=score_q()),
+        "tools": Criterion(min_threshold=0.5, question=score_q()),
         "salary_ok": Criterion(gate=True, question=choice_q()),
     }
 
@@ -115,5 +115,10 @@ def test_systemone_projection_matches_criteria_shape():
 
 
 def test_scorer_rejects_invalid_criteria_at_construction():
-    with pytest.raises(ValueError, match="set either weight > 0 or a gate"):
+    with pytest.raises(ValueError, match="set a gate or at least one threshold"):
         SystemOneScorer(systemone_client({}), {"x": Criterion(question=score_q())})
+    with pytest.raises(ValueError, match="min_threshold 0.9 is above apply_threshold 0.5"):
+        SystemOneScorer(
+            systemone_client({}),
+            {"x": Criterion(min_threshold=0.9, apply_threshold=0.5, question=score_q())},
+        )

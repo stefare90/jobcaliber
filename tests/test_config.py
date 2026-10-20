@@ -19,12 +19,13 @@ version: 11
 db_path: "./data/jobs.db"
 search:
   titles: ["Software Engineer"]
-  locations:
-    - {query: "Sardinia, Italy", remote: false}
-    - {query: "Italy", remote: true}
+  on_site_locations: ["Sardinia, Italy"]
+  remote_locations: ["Italy"]
+  exclude: ["tirocini"]
 criteria:
   core_skills:
-    weight: 45
+    min_threshold: 0.5
+    apply_threshold: 1.0
     question:
       type: "score"
       instructions: "how well do the skills match?"
@@ -56,8 +57,10 @@ def test_app_config_parses_full_yaml():
     cfg = AppConfig.model_validate(yaml.safe_load(FULL_YAML))
     assert cfg.version == 11
     assert cfg.search.titles == ["Software Engineer"]
-    assert [loc.remote for loc in cfg.search.locations] == [False, True]
-    assert cfg.criteria["core_skills"].weight == 45
+    assert cfg.search.on_site_locations == ["Sardinia, Italy"]
+    assert cfg.search.remote_locations == ["Italy"]
+    assert cfg.search.exclude == ["tirocini"]
+    assert cfg.criteria["core_skills"].min_threshold == 0.5
     assert isinstance(cfg.criteria["location"].gate, GateAccept)
     assert cfg.penalties == {"core_skills": 0.85}
     assert cfg.ai.engines["rizzo"].kind == "decision"
@@ -66,8 +69,8 @@ def test_app_config_parses_full_yaml():
 
 def test_app_config_defaults():
     cfg = AppConfig.model_validate({
-        "search": {"titles": ["Dev"], "locations": [{"query": "Turin, Italy"}]},
-        "criteria": {"core": {"weight": 45, "question": {
+        "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
+        "criteria": {"core": {"min_threshold": 0.5, "question": {
             "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
     })
     assert cfg.version == 11
@@ -79,17 +82,17 @@ def test_app_config_defaults():
 def test_app_config_rejects_unknown_top_level_key():
     with pytest.raises(ValidationError):
         AppConfig.model_validate({
-            "search": {"titles": ["Dev"], "locations": [{"query": "Turin, Italy"}]},
-            "criteria": {"core": {"weight": 45, "question": {
+            "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
+            "criteria": {"core": {"min_threshold": 0.5, "question": {
                 "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
             "job_filters": {"core_skills": {"weight": 45}},
         })
 
 
 def test_app_config_rejects_invalid_criteria():
-    with pytest.raises(ValidationError, match="set either weight > 0 or a gate"):
+    with pytest.raises(ValidationError, match="set a gate or at least one threshold"):
         AppConfig.model_validate({
-            "search": {"titles": ["Dev"], "locations": [{"query": "Turin, Italy"}]},
+            "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
             "criteria": {"core": {"question": {
                 "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
         })
@@ -98,8 +101,8 @@ def test_app_config_rejects_invalid_criteria():
 def test_board_max_results_rejects_unknown_board():
     with pytest.raises(ValidationError, match="board_max_results names unknown boards"):
         AppConfig.model_validate({
-            "search": {"titles": ["Dev"], "locations": [{"query": "Turin, Italy"}]},
-            "criteria": {"core": {"weight": 1, "question": {
+            "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
+            "criteria": {"core": {"min_threshold": 0.5, "question": {
                 "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
             "scraping": {"boards": ["linkedin"], "board_max_results": {"linkedin": 300, "indeed": 500}},
         })

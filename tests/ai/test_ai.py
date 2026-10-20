@@ -107,9 +107,9 @@ def test_ai_clients_validate_criteria_when_building_the_scorer(tmp_path):
         roles={"scorer": "sc"},
     )
     clients = AIClients.from_config(cfg, ROOT)
-    bad = {"core": Criterion(weight=10, question=Question(
+    bad = {"core": Criterion(min_threshold=0.5, question=Question(
         type="choice", instructions="?", options={"a": "a"}, missing="a"))}
-    with pytest.raises(ValueError, match="weighted criterion needs a 'score' question"):
+    with pytest.raises(ValueError, match="scored criterion needs a 'score' question"):
         clients.scorer(bad)
 
 
@@ -124,7 +124,7 @@ def test_ai_clients_unknown_role_raises(tmp_path):
 
 def make_criteria():
     from jobcaliber.config import Criterion, Question
-    return {"core_skills": Criterion(weight=45, question=Question(
+    return {"core_skills": Criterion(min_threshold=0.5, question=Question(
         type="score", instructions="how good?", levels=["Not stated", "No", "Yes"], missing=0))}
 
 

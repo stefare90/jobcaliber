@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-_PLACEHOLDER = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+_PLACEHOLDER = re.compile(r"\{\{\s*([\w.]+)\s*\}\}")
 _FRONT_MATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", re.DOTALL)
 
 # Each prompt kind fixes its file extension and the shape of its content.
@@ -24,10 +24,19 @@ class PromptError(RuntimeError):
     pass
 
 
-def render(text: str, values: dict[str, Any]) -> str:
+def placeholders(text: str) -> set[str]:
+    return {match.group(1) for match in _PLACEHOLDER.finditer(text)}
+
+
+def render(text: str, values: dict[str, Any], strict: bool = False) -> str:
+    """Substitute `{{name}}`; with `strict`, an unknown name raises instead of surviving."""
     def _sub(match: re.Match) -> str:
         key = match.group(1)
-        return str(values.get(key, match.group(0)))
+        if key not in values:
+            if strict:
+                raise PromptError(f"unresolved placeholder '{{{{{key}}}}}'; known: {sorted(values)}")
+            return match.group(0)
+        return str(values[key])
     return _PLACEHOLDER.sub(_sub, text)
 
 

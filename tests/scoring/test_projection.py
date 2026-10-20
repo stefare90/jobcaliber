@@ -99,3 +99,57 @@ def test_llm_example_uses_the_real_keys():
 def test_llm_choice_keys_are_listed_as_options():
     _, user = build_llm_prompt({"salary_ok": Criterion(gate=True, question=choice_q())})
     assert "one of: yes | no | missing" in user
+
+
+def test_search_placeholders_are_resolved_in_every_field():
+    from jobcaliber.config import Search
+
+    values = Search(
+        titles=["Software Engineer"],
+        on_site_locations=["Sardinia, Italy"],
+        remote_locations=["Italy"],
+    ).render_values()
+    criteria = {
+        "role_fit": Criterion(apply_threshold=0.67, question=Question(
+            type="score", instructions="aligned with {{search.titles}}?",
+            levels=["no", "unknown", "partial", "full"], missing=1)),
+        "location": Criterion(gate=GateAccept(accept=["accepted"]), question=Question(
+            type="choice", instructions="lives in {{search.on_site_locations}}",
+            options={"accepted": "in {{search.on_site_locations}} or remote {{search.remote_locations}}",
+                     "rejected": "outside {{search.on_site_locations}}",
+                     "unknown": "unknown"}, missing="unknown")),
+    }
+    questions = build_systemone_questions(criteria, values)
+    assert questions["role_fit"]["instructions"] == "aligned with Software Engineer?"
+    assert questions["location"]["criteria"]["accepted"] == "in Sardinia, Italy or remote Italy"
+    _, user = build_llm_prompt(criteria, values)
+    assert "{{search." not in user
+    assert set(re.findall(r"\{\{(\w+)\}\}", user)) == POSTING_PLACEHOLDERS
+
+
+def test_unresolved_search_placeholder_fails_fast():
+    from jobcaliber.ai.prompts import PromptError
+
+    criteria = {"role_fit": Criterion(apply_threshold=0.67, question=Question(
+        type="score", instructions="aligned with {{search.titles}}?",
+        levels=["no", "unknown", "partial", "full"], missing=1))}
+    with pytest.raises(PromptError, match=r"unresolved placeholder '\{\{search\.titles\}\}'"):
+        build_systemone_questions(criteria, {})
+
+
+def test_search_render_values_expose_titles_and_locations():
+    from jobcaliber.config import Search
+
+    values = Search(
+        titles=["A", "B"],
+        on_site_locations=["Sardinia, Italy"],
+        remote_locations=["Italy"],
+        exclude=["tirocini"],
+    ).render_values()
+    assert values == {
+        "search.titles": "A, B",
+        "search.on_site_locations": "Sardinia, Italy",
+        "search.remote_locations": "Italy",
+        "search.exclude": "tirocini",
+    }
+    assert Search(titles=["A"]).render_values()["search.exclude"] == "none"

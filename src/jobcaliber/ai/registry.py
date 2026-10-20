@@ -62,15 +62,16 @@ class AIClients:
 
     # Domain services, built from the role-resolved engine (lazy imports avoid a
     # package cycle: scoring/delivery/ingestion import jobcaliber.ai submodules).
-    def scorer(self, criteria: dict[str, Criterion]):
+    def scorer(self, criteria: dict[str, Criterion], values: dict[str, str] | None = None):
         """Scorer for the configured 'scorer' role (implementation hidden)."""
-        return self.scorer_for(self._role_engine("scorer"), criteria)
+        return self.scorer_for(self._role_engine("scorer"), criteria, values)
 
-    def scorer_for(self, engine_name: str, criteria: dict[str, Criterion]):
+    def scorer_for(self, engine_name: str, criteria: dict[str, Criterion],
+                   values: dict[str, str] | None = None):
         """Scorer for a named engine (used by benchmarks)."""
         from jobcaliber.scoring import Scorer
         validate_criteria(criteria)
-        return Scorer.create(self.by_name(engine_name), criteria, self.prompts)
+        return Scorer.create(self.by_name(engine_name), criteria, self.prompts, values)
 
     def _role_engine(self, role: str) -> str:
         name = self._roles.get(role)

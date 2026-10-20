@@ -1,6 +1,6 @@
 import pandas as pd
 
-from jobcaliber.config import Scraping, Search, SearchLocation
+from jobcaliber.config import Scraping, Search
 from jobcaliber.ingestion.fetch import (
     Fetcher,
     clean_value,
@@ -26,10 +26,8 @@ def make_scraping(**over):
 def make_search(**over):
     defaults = dict(
         titles=["Software Engineer", "Embedded Software Engineer", "Python Developer"],
-        locations=[
-            SearchLocation(query="Sardinia, Italy"),
-            SearchLocation(query="Italy", remote=True),
-        ],
+        on_site_locations=["Sardinia, Italy"],
+        remote_locations=["Italy"],
     )
     defaults.update(over)
     return Search(**defaults)
@@ -40,17 +38,17 @@ def test_build_queries_passes_location_strings_verbatim():
     queries = fetcher.build_queries(make_search())
     assert [(q.keywords, q.location, q.remote) for q in queries] == [
         ("Software Engineer", "Sardinia, Italy", False),
-        ("Software Engineer", "Italy", True),
         ("Embedded Software Engineer", "Sardinia, Italy", False),
-        ("Embedded Software Engineer", "Italy", True),
         ("Python Developer", "Sardinia, Italy", False),
+        ("Software Engineer", "Italy", True),
+        ("Embedded Software Engineer", "Italy", True),
         ("Python Developer", "Italy", True),
     ]
 
 
 def test_build_queries_without_remote_location():
     fetcher = Fetcher(make_scraping())
-    search = make_search(locations=[SearchLocation(query="Sardinia, Italy")])
+    search = make_search(remote_locations=[])
     queries = fetcher.build_queries(search)
     assert [q.location for q in queries] == ["Sardinia, Italy"] * 3
     assert all(q.remote is False for q in queries)

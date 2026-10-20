@@ -25,11 +25,13 @@ def validate_answers(questions: dict, criteria: dict[str, Criterion]) -> None:
 
 @Scorer.register("decision")
 class SystemOneScorer(Scorer):
-    def __init__(self, client: SystemOneClient, criteria: dict[str, Criterion], prompts=None):
+    def __init__(self, client: SystemOneClient, criteria: dict[str, Criterion], prompts=None,
+                 values: dict[str, str] | None = None):
         validate_criteria(criteria)
         self.client = client
         self.criteria = criteria
-        self.questions = build_systemone_questions(criteria)
+        self.values = values or {}
+        self.questions = build_systemone_questions(criteria, self.values)
         validate_answers(self.questions, criteria)
 
     def score_posting(self, posting: JobPosting) -> ScoringResult:

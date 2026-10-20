@@ -95,8 +95,21 @@ class SearchLocation(BaseModel):
 
 
 class Search(BaseModel):
+    """What to look for. Location strings are board-ready (`Sardinia, Italy`, not `Sardegna`)."""
+
     titles: list[str] = Field(default_factory=list)
-    locations: list[SearchLocation] = Field(default_factory=list)
+    on_site_locations: list[str] = Field(default_factory=list)
+    remote_locations: list[str] = Field(default_factory=list)
+    exclude: list[str] = Field(default_factory=list)
+
+    def render_values(self) -> dict[str, str]:
+        """Placeholders available to every criterion question (`{{search.*}}`)."""
+        return {
+            "search.titles": ", ".join(self.titles),
+            "search.on_site_locations": ", ".join(self.on_site_locations),
+            "search.remote_locations": ", ".join(self.remote_locations),
+            "search.exclude": "; ".join(self.exclude) or "none",
+        }
 
 
 class Question(BaseModel):
@@ -110,9 +123,14 @@ class Question(BaseModel):
 
 
 class Criterion(BaseModel):
-    """Weighted dimension (`weight > 0`) or hard gate (`gate`), never both."""
+    """Scored dimension (thresholds) or hard gate (`gate`), never both.
 
-    weight: float = 0.0
+    `min_threshold` drops below it; `apply_threshold` marks the PASS band. A missing answer
+    is exempt from both: it never drops and it forces REVIEW.
+    """
+
+    min_threshold: float | None = None
+    apply_threshold: float | None = None
     gate: bool | GateAccept | GateMinScore | None = None
     question: Question
 
@@ -123,8 +141,9 @@ BOOLEAN_OPTIONS = {"yes", "no", "missing"}
 def validate_search(search: Search) -> None:
     if not [t for t in search.titles if t.strip()]:
         raise ValueError("search needs at least one non-empty title")
-    if not [loc for loc in search.locations if loc.query.strip()]:
-        raise ValueError("search needs at least one non-empty location query")
+    if not ([loc for loc in search.on_site_locations if loc.strip()]
+            or [loc for loc in search.remote_locations if loc.strip()]):
+        raise ValueError("search needs at least one on_site_locations or remote_locations entry")
 
 
 def _validate_question(key: str, criterion: Criterion) -> None:
@@ -199,18 +218,31 @@ def validate_criteria(criteria: dict[str, Criterion], penalties: dict[str, float
         raise ValueError("at least one criterion is required")
     for key, criterion in criteria.items():
         has_gate = criterion.gate is not None and criterion.gate is not False
-        if criterion.weight > 0 and has_gate:
-            raise ValueError(f"criterion '{key}': set either weight > 0 or a gate, not both")
-        if criterion.weight <= 0 and not has_gate:
-            raise ValueError(f"criterion '{key}': set either weight > 0 or a gate")
-        if criterion.weight > 0 and criterion.question.type != "score":
+        scored = criterion.min_threshold is not None or criterion.apply_threshold is not None
+        if has_gate and scored:
+            raise ValueError(f"criterion '{key}': a gate cannot also carry thresholds")
+        if not has_gate and not scored:
+            raise ValueError(f"criterion '{key}': set a gate or at least one threshold")
+        if not has_gate and criterion.question.type != "score":
             raise ValueError(
-                f"criterion '{key}': a weighted criterion needs a 'score' question, "
+                f"criterion '{key}': a scored criterion needs a 'score' question, "
                 f"got '{criterion.question.type}'"
+            )
+        for name in ("min_threshold", "apply_threshold"):
+            value = getattr(criterion, name)
+            if value is not None and not 0.0 <= value <= 1.0:
+                raise ValueError(f"criterion '{key}': {name} must be within [0, 1], got {value}")
+        if (criterion.min_threshold is not None and criterion.apply_threshold is not None
+                and criterion.min_threshold > criterion.apply_threshold):
+            raise ValueError(
+                f"criterion '{key}': min_threshold {criterion.min_threshold} is above "
+                f"apply_threshold {criterion.apply_threshold}"
             )
         _validate_question(key, criterion)
         if has_gate:
             _validate_gate(key, criterion)
+    if not any(c.gate is None or c.gate is False for c in criteria.values()):
+        raise ValueError("at least one scored criterion is required")
     for key, penalty in (penalties or {}).items():
         if key not in criteria:
             raise ValueError(f"penalty for unknown criterion '{key}'; known: {sorted(criteria)}")

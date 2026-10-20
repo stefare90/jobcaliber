@@ -33,13 +33,14 @@ class Scorer(ABC):
         return _decorator
 
     @classmethod
-    def create(cls, client: Any, criteria: dict[str, Criterion], prompts: PromptStore) -> "Scorer":
+    def create(cls, client: Any, criteria: dict[str, Criterion], prompts: PromptStore,
+               values: dict[str, str] | None = None) -> "Scorer":
         """Build the scorer registered for the client's engine kind."""
         kind = getattr(getattr(client, "engine", None), "kind", None)
         subclass = Scorer._registry.get(kind)
         if subclass is None:
             raise AIError(f"no scorer registered for engine kind '{kind}'; known: {sorted(Scorer._registry)}")
-        return subclass(client, criteria, prompts)
+        return subclass(client, criteria, prompts, values or {})
 
     @staticmethod
     def build_state(posting: JobPosting) -> str:

@@ -6,58 +6,78 @@ db_path: "./data/jobs.db"
 # 1. Search inputs (the only bound part: they drive the boards).
 search:
   titles: ["Backend Engineer", "Embedded Software Engineer", "Python Developer"]
-  locations:
-    # Passed to the boards verbatim: use the spelling the board understands.
-    - { query: "Turin, Italy", remote: false }
-    - { query: "Italy", remote: true }
+  # Passed to the boards verbatim: use the spelling the board understands.
+  on_site_locations: ["Turin, Italy"]
+  remote_locations: ["Italy"]
+  # Shown to the `applicable` criterion: postings matching one of these are not for this candidate.
+  exclude: []
+
 
 # 2. Criteria: weighted dimensions (weight > 0) or hard gates (gate), each with a question.
 #    Add your own: a new key + its question is all it takes.
 criteria:
   core_skills:
-    weight: 45
+    min_threshold: 0.5
+    apply_threshold: 0.67
     question:
       type: "score"
-      instructions: "How well do the required skills match the candidate's core stack (c++ level 5, python level 4)?"
+      instructions: >
+        Are the candidate's core skills (c++ at level 5, python at level 4) in line
+        with the skills the posting asks for?
       levels:
         [
-          "Not mentioned: the posting never refers to c++ or python",
-          "Mentions the stack only as a nice-to-have, not required",
-          "Requires one core skill (c++ or python) at any level",
-          "Requires core skills as a main part of the role",
-          "Core skills are the primary requirement",
+          "Other skills only: the posting lists skills, but none of them are the candidate's",
+          "Cannot tell: the posting does not say enough about skills to judge",
+          "Partial: some of the candidate's core skills are requested",
+          "Full: the candidate's core skills are a main requirement of the posting",
         ]
-      missing: null
+      missing: 1
 
   tools:
-    weight: 20
+    min_threshold: 0.5
+    apply_threshold: 0.67
     question:
       type: "score"
-      instructions: "How many of the candidate's preferred tools are covered (Qt, FastAPI, CMake, Git)?"
+      instructions: >
+        Are the candidate's preferred tools in line with what the posting asks for?
+        Preferred: Qt, Quantum Leaps QP, Git, Azure DevOps, Bitbucket, Bamboo, Jira,
+        LLMs, integration/unit testing, code coverage, GTest, GCov, Coverity,
+        SonarQube, database management, Snowflake.
       levels:
         [
-          "None of the preferred tools are mentioned",
-          "One minor overlap",
-          "About half covered",
-          "Most covered",
-          "All or most covered",
+          "Other tools only: the posting lists tools, but none of them are the candidate's",
+          "Cannot tell: the posting does not say enough about tools to judge",
+          "Partial: some of the candidate's preferred tools are requested",
+          "Full: the candidate's preferred tools are a main requirement of the posting",
         ]
-      missing: null
+      missing: 1
 
-  contract:
-    weight: 20
+  role_fit:
+    min_threshold: 0.5
+    apply_threshold: 0.67
     question:
       type: "score"
-      instructions: "How well do contract type and seniority fit? Wanted: permanent, mid-senior."
-      levels: ["Not stated", "Internship or junior-only", "Unclear or fixed-term", "Coherent permanent match"]
-      missing: 0
+      instructions: >
+        Is this posting's role in line with the candidate's target roles:
+        {{search.titles}}?
+      levels:
+        [
+          "Other role: this is a different profession or family",
+          "Cannot tell: the posting does not say enough about the role to judge",
+          "Partial: adjacent role in the same family",
+          "Full: exactly one of the target roles",
+        ]
+      missing: 1
 
   pay:
-    weight: 15
+    apply_threshold: 0.75
     question:
       type: "score"
-      instructions: "How close is the stated annual gross salary to 40.000 EUR?"
-      levels: ["Not stated", "Clearly below", "Plausible", "At target", "Above target"]
+      instructions: >
+        How close is the stated annual gross salary to the target of 40.000 EUR
+        (minimum acceptable 38.000)?
+      levels:
+        ["Not stated", "Clearly below 38k", "Around 38-40k", "At the 40k target", "Above target"]
       missing: 0
 
   location:
@@ -65,18 +85,42 @@ criteria:
     question:
       type: "choice"
       instructions: >
-        Is this job acceptable to the candidate on location? The candidate lives in
-        Sardinia, Italy, wants to work there or fully remote, and cannot relocate.
-        Judge where the work must actually be done, using the declared location and
-        any arrangement stated in the description.
+        Is this job acceptable to the candidate on location? The candidate wants to work
+        in {{search.on_site_locations}} or fully remote within {{search.remote_locations}},
+        and cannot relocate. Judge where the work must actually be done, using the
+        declared location and any arrangement stated in the description.
       options:
-        accepted: "On-site or hybrid in Sardinia, or fully remote from Italy"
-        rejected: "Requires on-site or hybrid attendance outside Sardinia"
+        accepted: "On-site or hybrid in {{search.on_site_locations}}, or fully remote within {{search.remote_locations}}"
+        rejected: "Requires on-site or hybrid attendance outside {{search.on_site_locations}}"
         unknown: "The posting does not say where the work must be done"
       missing: "unknown"
 
+  applicable:
+    gate: { accept: ["keep"] }
+    question:
+      type: "choice"
+      instructions: >
+        Read the job title first, then the description. Does this posting match any of
+        these exclusions: {{search.exclude}}? Answer keep only if it matches none of them.
+      options:
+        keep: "Open to any candidate, a normal job"
+        excluded: "Matches one of the exclusions"
+        missing: "Cannot tell"
+      missing: "missing"
 
-# Confidence multipliers applied when a criterion answer is missing.
+  contract_ok:
+    gate: true
+    question:
+      type: "choice"
+      instructions: >
+        Is this a permanent employment contract? Answer "no" for partita IVA /
+        freelance, internship, or agency contract.
+      options:
+        "yes": "Permanent employment contract"
+        "no": "Partita IVA, freelance, internship or agency contract"
+        "missing": "The contract type is not stated"
+      missing: "missing"
+
 penalties: { location: 0.8, pay: 0.85 }
 
 # 3. Notification delivery & thresholds

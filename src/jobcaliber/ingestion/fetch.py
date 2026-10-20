@@ -78,11 +78,16 @@ class Fetcher:
         return self.scraping.page_size
 
     def build_queries(self, search: Search) -> list[Query]:
-        return [
-            Query(keywords=title.strip(), location=location.query, role=title, remote=location.remote)
-            for title in search.titles
-            for location in search.locations
+        titles = [title.strip() for title in search.titles if title.strip()]
+        queries = [
+            Query(keywords=title, location=loc.strip(), role=title, remote=False)
+            for title in titles for loc in search.on_site_locations if loc.strip()
         ]
+        queries += [
+            Query(keywords=title, location=loc.strip(), role=title, remote=True)
+            for title in titles for loc in search.remote_locations if loc.strip()
+        ]
+        return queries
 
     def _scrape(self, **kwargs):
         return scrape_jobs(**kwargs)

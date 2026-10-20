@@ -11,11 +11,13 @@ from jobcaliber.scoring.scorer.base import Scorer
 
 @Scorer.register("llm")
 class LLMScorer(Scorer):
-    def __init__(self, client: LLMClient, criteria: dict[str, Criterion], prompts=None):
+    def __init__(self, client: LLMClient, criteria: dict[str, Criterion], prompts=None,
+                 values: dict[str, str] | None = None):
         validate_criteria(criteria)
         self.client = client
         self.criteria = criteria
-        self.system, self.template = build_llm_prompt(criteria)
+        self.values = values or {}
+        self.system, self.template = build_llm_prompt(criteria, self.values)
 
     def score_posting(self, posting: JobPosting) -> ScoringResult:
         values = {

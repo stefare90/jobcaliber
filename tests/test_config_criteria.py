@@ -7,7 +7,6 @@ from jobcaliber.config import (
     GateMinScore,
     Question,
     Search,
-    SearchLocation,
     validate_criteria,
     validate_search,
 )
@@ -35,51 +34,64 @@ def bool_q():
     )
 
 
-def weighted(weight=45, **kw):
-    return Criterion(weight=weight, question=kw.get("question") or score_q())
+def scored(min_threshold=0.5, apply_threshold=None, **kw):
+    return Criterion(min_threshold=min_threshold, apply_threshold=apply_threshold,
+                     question=kw.get("question") or score_q())
 
 
 # --- search -----------------------------------------------------------------
 
 def test_search_needs_a_title():
     with pytest.raises(ValueError, match="at least one non-empty title"):
-        validate_search(Search(titles=["  "], locations=[SearchLocation(query="Turin, Italy")]))
+        validate_search(Search(titles=["  "], on_site_locations=["Turin, Italy"]))
 
 
-def test_search_needs_a_location_query():
-    with pytest.raises(ValueError, match="at least one non-empty location query"):
-        validate_search(Search(titles=["Dev"], locations=[SearchLocation(query=" ")]))
+def test_search_needs_a_location():
+    with pytest.raises(ValueError, match="at least one on_site_locations or remote_locations"):
+        validate_search(Search(titles=["Dev"], on_site_locations=[" "], remote_locations=[]))
 
 
-def test_search_accepts_a_remote_location():
-    search = Search(
-        titles=["Dev"],
-        locations=[SearchLocation(query="Turin, Italy"), SearchLocation(query="Italy", remote=True)],
-    )
+def test_search_accepts_remote_locations_only():
+    search = Search(titles=["Dev"], remote_locations=["Italy"])
     validate_search(search)
-    assert [loc.remote for loc in search.locations] == [False, True]
+    assert search.on_site_locations == [] and search.remote_locations == ["Italy"]
 
 
 # --- criteria shape ---------------------------------------------------------
 
-def test_weight_and_gate_are_mutually_exclusive():
-    with pytest.raises(ValueError, match="not both"):
-        validate_criteria({"x": Criterion(weight=10, gate=True, question=bool_q())})
+def test_thresholds_and_gate_are_mutually_exclusive():
+    with pytest.raises(ValueError, match="a gate cannot also carry thresholds"):
+        validate_criteria({"x": Criterion(min_threshold=0.5, gate=True, question=bool_q())})
 
 
-def test_criterion_needs_weight_or_gate():
-    with pytest.raises(ValueError, match="set either weight > 0 or a gate"):
+def test_criterion_needs_a_gate_or_a_threshold():
+    with pytest.raises(ValueError, match="set a gate or at least one threshold"):
         validate_criteria({"x": Criterion(question=score_q())})
 
 
 def test_gate_false_is_treated_as_no_gate():
-    with pytest.raises(ValueError, match="set either weight > 0 or a gate"):
+    with pytest.raises(ValueError, match="set a gate or at least one threshold"):
         validate_criteria({"x": Criterion(gate=False, question=score_q())})
 
 
-def test_a_weighted_criterion_must_be_a_score_question():
-    with pytest.raises(ValueError, match="weighted criterion needs a 'score' question"):
-        validate_criteria({"x": Criterion(weight=10, question=choice_q())})
+def test_a_scored_criterion_must_be_a_score_question():
+    with pytest.raises(ValueError, match="scored criterion needs a 'score' question"):
+        validate_criteria({"x": Criterion(min_threshold=0.5, question=choice_q())})
+
+
+def test_min_threshold_above_apply_threshold_is_rejected():
+    with pytest.raises(ValueError, match="min_threshold 0.9 is above apply_threshold 0.5"):
+        validate_criteria({"x": scored(min_threshold=0.9, apply_threshold=0.5)})
+
+
+def test_thresholds_must_be_within_range():
+    with pytest.raises(ValueError, match=r"min_threshold must be within \[0, 1\]"):
+        validate_criteria({"x": scored(min_threshold=1.5)})
+
+
+def test_at_least_one_scored_criterion_is_required():
+    with pytest.raises(ValueError, match="at least one scored criterion is required"):
+        validate_criteria({"loc": Criterion(gate=GateAccept(accept=["primary"]), question=choice_q())})
 
 
 # --- boolean gates ----------------------------------------------------------
@@ -113,7 +125,10 @@ def test_accept_must_not_accept_the_missing_option():
 
 
 def test_accept_gate_happy_path():
-    validate_criteria({"location": Criterion(gate=GateAccept(accept=["primary", "remote"]), question=choice_q())})
+    validate_criteria({
+        "core": scored(),
+        "location": Criterion(gate=GateAccept(accept=["primary", "remote"]), question=choice_q()),
+    })
 
 
 # --- min_score gates --------------------------------------------------------
@@ -132,17 +147,17 @@ def test_min_score_must_be_within_range():
 
 def test_score_question_needs_two_levels():
     with pytest.raises(ValueError, match="at least 2 levels"):
-        validate_criteria({"x": weighted(question=score_q(levels=("only one",)))})
+        validate_criteria({"x": scored(question=score_q(levels=("only one",)))})
 
 
 def test_score_missing_must_be_a_valid_level_index():
     with pytest.raises(ValueError, match="level index must be within"):
-        validate_criteria({"x": weighted(question=score_q(missing=9))})
+        validate_criteria({"x": scored(question=score_q(missing=9))})
 
 
 def test_score_missing_must_be_an_index_not_a_key():
     with pytest.raises(ValueError, match="'missing' must be a level index"):
-        validate_criteria({"x": weighted(question=Question(type="score", instructions="?", levels=["a", "b"], missing="na"))})
+        validate_criteria({"x": scored(question=Question(type="score", instructions="?", levels=["a", "b"], missing="na"))})
 
 
 def test_choice_question_needs_options():
@@ -159,12 +174,12 @@ def test_choice_missing_must_be_an_option_key():
 
 def test_penalties_must_reference_known_criteria():
     with pytest.raises(ValueError, match="penalty for unknown criterion 'ghost'"):
-        validate_criteria({"core": weighted()}, penalties={"ghost": 0.8})
+        validate_criteria({"core": scored()}, penalties={"ghost": 0.8})
 
 
 def test_penalty_must_be_a_factor():
     with pytest.raises(ValueError, match=r"penalty must be within \(0, 1\]"):
-        validate_criteria({"core": weighted()}, penalties={"core": 0.0})
+        validate_criteria({"core": scored()}, penalties={"core": 0.0})
 
 
 def test_empty_criteria_are_rejected():
@@ -174,14 +189,15 @@ def test_empty_criteria_are_rejected():
 
 def test_full_happy_path_with_mixed_criteria():
     criteria = {
-        "core_skills": weighted(45),
-        "tools": weighted(20),
+        "core_skills": scored(min_threshold=0.5, apply_threshold=1.0),
+        "tools": scored(min_threshold=0.5, apply_threshold=1.0),
+        "role_fit": scored(apply_threshold=1.0),
+        "pay": scored(apply_threshold=0.75),
         "location": Criterion(gate=GateAccept(accept=["primary", "remote", "hybrid"]), question=choice_q()),
-        "salary_ok": Criterion(gate=True, question=bool_q()),
-        "strict_match": Criterion(gate=GateMinScore(min_score=0.7), question=score_q()),
+        "contract_ok": Criterion(gate=True, question=bool_q()),
     }
     validate_criteria(criteria, penalties={"core_skills": 0.85})
-    assert set(criteria) == {"core_skills", "tools", "location", "salary_ok", "strict_match"}
+    assert set(criteria) == {"core_skills", "tools", "role_fit", "pay", "location", "contract_ok"}
 
 
 def test_question_rejects_unknown_type():
