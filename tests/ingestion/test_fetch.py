@@ -174,3 +174,18 @@ def test_fetch_all_records_board_errors_without_raising():
     postings, per_board = fetcher.fetch_all(make_profile())
     assert postings == []
     assert per_board["linkedin"].errors and "board down" in per_board["linkedin"].errors[0]
+
+
+def test_fetch_board_counts_skipped_captcha_rows():
+    frame = stub_frame([
+        {"id": "1", "job_url": "http://a", "title": "Dev", "company": "Acme",
+         "location": "L", "description": "ok", "date_posted": None,
+         "min_amount": None, "max_amount": None},
+        {"id": "2", "job_url": "http://b", "title": "Dev", "company": "Acme",
+         "location": "L", "description": "please solve this captcha", "date_posted": None,
+         "min_amount": None, "max_amount": None},
+    ])
+    fetcher = Fetcher(make_scraping(), scrape_fn=lambda **kw: frame, sleep_fn=lambda s: None)
+    records, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev"), "linkedin", "q1")
+    assert stats.captcha_skipped == 1
+    assert [r.url for r in records] == ["http://a"]

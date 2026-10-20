@@ -120,6 +120,7 @@ class Fetcher:
                     row = {k: clean_value(v) for k, v in r.to_dict().items()}
                     blob = " ".join(str(row.get(k, "") or "") for k in ("title", "description", "company"))
                     if is_captcha_text(blob):
+                        stats.captcha_skipped += 1
                         continue
                     if row_usable(row):
                         stats.usable += 1

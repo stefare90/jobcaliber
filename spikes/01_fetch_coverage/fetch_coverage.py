@@ -28,9 +28,12 @@ INPUT_DIR = HERE / "input"
 OUTPUT_DIR = HERE / "output"
 RAW_DIR = OUTPUT_DIR / "raw"
 REPORT_PATH = OUTPUT_DIR / "report.md"
+STATS_PATH = OUTPUT_DIR / "stats.json"
 BENCH_POSTINGS = HERE.parent / "02_engine_benchmark" / "input" / "postings.jsonl"
 
-PASS_BAR_USABLE_PER_QUERY = 5
+# Reporting bar: below this a query cannot sustain a daily pipeline. Reported per query,
+# it does not turn the run into a pass/fail verdict.
+MIN_USABLE_PER_QUERY = 5
 
 
 def postings_to_json(postings: list[JobPosting]) -> list[dict]:
@@ -108,10 +111,11 @@ def render_report(
     per_query: dict[str, dict],
     per_board: dict[str, dict],
     exported: tuple[int, int],
+    captcha_skipped: int,
+    reconstructed: bool = False,
 ) -> str:
-    usable_per_query = {qid: stats["usable"] for qid, stats in per_query.items()}
-    pass_bar = all(v >= PASS_BAR_USABLE_PER_QUERY for v in usable_per_query.values())
-    usable_total = sum(usable_per_query.values())
+    usable = {qid: stats["usable"] for qid, stats in per_query.items()}
+    usable_total = sum(usable.values())
 
     lines = [
         "# Spike 01 — fetch coverage",
@@ -123,6 +127,8 @@ def render_report(
         f"job_type={config.scraping.job_type}",
         f"- boards: {', '.join(fetcher.boards)}",
         f"- queries: {len(queries)}",
+        "- coverage rebuilt from `output/raw/`: captcha and error counters were not persisted"
+        " by that run" if reconstructed else "",
         "",
         "## Queries",
         "",
@@ -140,33 +146,68 @@ def render_report(
         "",
         "## Per board",
         "",
-        "| board | seen | usable | new | errors |",
-        "|---|---|---|---|---|",
+        "| board | seen | usable | new | captcha skipped | errors |",
+        "|---|---|---|---|---|---|",
     ]
     for board in fetcher.boards:
-        stats = per_board.get(board, {"seen": 0, "usable": 0, "new": 0, "errors": []})
+        stats = per_board.get(board, {"seen": 0, "usable": 0, "new": 0, "captcha_skipped": 0, "errors": []})
         lines.append(
-            f"| {board} | {stats['seen']} | {stats['usable']} | {stats['new']} | {len(stats['errors'])} |"
+            f"| {board} | {stats['seen']} | {stats['usable']} | {stats['new']} | "
+            f"{stats.get('captcha_skipped', 0)} | {len(stats['errors'])} |"
         )
     errors = [(board, err) for board, stats in per_board.items() for err in stats["errors"]]
     if errors:
         lines += ["", "### Errors"]
         lines += [f"- {board}: {err}" for board, err in errors]
 
-    empty = [qid for qid, v in usable_per_query.items() if v == 0]
+    below = [f"`{qid}` {count}" for qid, count in usable.items() if count < MIN_USABLE_PER_QUERY]
     lines += [
         "",
-        "## Pass bar",
+        "## Coverage",
         "",
-        f"- >= {PASS_BAR_USABLE_PER_QUERY} usable rows per query: "
-        f"{'YES' if pass_bar else 'NO'}" + (f" (empty: {', '.join(empty)})" if empty else ""),
+        f"- usable rows per query below {MIN_USABLE_PER_QUERY}: {', '.join(below) or 'none'}",
+        f"- queries with zero rows: {', '.join(q for q, c in usable.items() if c == 0) or 'none'}",
+        f"- captcha rows skipped: {captcha_skipped}",
         f"- total usable rows: {usable_total}",
         f"- frozen benchmark set: {exported[1]} postings deduplicated from {exported[0]} rows "
         f"-> `{BENCH_POSTINGS.relative_to(ROOT)}`",
-        f"- VERDICT: {'PASS' if pass_bar else 'FAIL'}",
         "",
     ]
     return "\n".join(lines)
+
+
+def reconstruct_from_raw(queries: list[Query]) -> tuple[dict[str, dict], dict[str, dict]]:
+    """Rebuild per-query/per-board counters by replaying output/raw/ in fetch order."""
+    per_query = {f"q{i}": {"seen": 0, "usable": 0, "new": 0} for i in range(1, len(queries) + 1)}
+    per_board: dict[str, dict] = {}
+    seen: set[str] = set()
+    for index, query in enumerate(queries, start=1):
+        qid = f"q{index}"
+        path_list = sorted(RAW_DIR.glob(f"{qid}_*.json"))
+        for path in path_list:
+            board = path.stem.split("_", 1)[1]
+            bucket = per_board.setdefault(
+                board, {"seen": 0, "usable": 0, "new": 0, "captcha_skipped": 0, "errors": []}
+            )
+            rows = json.loads(path.read_text(encoding="utf-8"))
+            bucket["seen"] += len(rows)
+            per_query[qid]["seen"] += len(rows)
+            for row in rows:
+                if row.get("title") and row.get("company") and row.get("url"):
+                    bucket["usable"] += 1
+                    per_query[qid]["usable"] += 1
+                key = row.get("external_id")
+                if key and key not in seen:
+                    seen.add(key)
+                    bucket["new"] += 1
+                    per_query[qid]["new"] += 1
+    return per_query, per_board
+
+
+def load_queries_snapshot() -> list[Query]:
+    data = json.loads((INPUT_DIR / "queries.json").read_text(encoding="utf-8"))
+    return [Query(keywords=q["keywords"], location=q["location"], role=q["role"], remote=q["remote"])
+            for q in data["queries"]]
 
 
 def main() -> int:
@@ -176,7 +217,25 @@ def main() -> int:
         action="store_true",
         help="skip the network and only rebuild the benchmark set from output/raw/",
     )
+    parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="skip the network and rebuild report.md from output/raw/ (captcha/errors unknown)",
+    )
     args = parser.parse_args()
+
+    if args.report_only:
+        config_path, config = load_config(ROOT)
+        queries = load_queries_snapshot()
+        per_query, per_board = reconstruct_from_raw(queries)
+        exported = export_postings(RAW_DIR, BENCH_POSTINGS)
+        report = render_report(
+            "not recorded (rebuilt from output/raw/)", config_path, config, Fetcher(config.scraping), queries,
+            per_query, per_board, exported, captcha_skipped=0, reconstructed=True,
+        )
+        REPORT_PATH.write_text(report, encoding="utf-8")
+        print(report)
+        return 0
 
     if args.export_only:
         total, unique = export_postings(RAW_DIR, BENCH_POSTINGS)
@@ -209,11 +268,14 @@ def main() -> int:
             (RAW_DIR / f"q{i}_{board}.json").write_text(
                 json.dumps(postings_to_json(postings), ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
             )
-            bucket = per_board.setdefault(board, {"seen": 0, "usable": 0, "new": 0, "errors": []})
+            bucket = per_board.setdefault(
+                board, {"seen": 0, "usable": 0, "new": 0, "captcha_skipped": 0, "errors": []}
+            )
             bucket["seen"] += stats.seen
             bucket["usable"] += stats.usable
             bucket["new"] += stats.new
             bucket["errors"].extend(stats.errors)
+            bucket["captcha_skipped"] += stats.captcha_skipped
 
             stats_q = per_query[f"q{i}"]
             stats_q["seen"] += len(postings)
@@ -231,10 +293,29 @@ def main() -> int:
             fetcher.sleep_fn(2)
 
     exported = export_postings(RAW_DIR, BENCH_POSTINGS)
-    report = render_report(started, config_path, config, fetcher, queries, per_query, per_board, exported)
+    captcha_skipped = sum(stats["captcha_skipped"] for stats in per_board.values())
+    STATS_PATH.write_text(
+        json.dumps(
+            {
+                "started_utc": started,
+                "config": config_path.name,
+                "queries": per_query,
+                "boards": per_board,
+                "captcha_skipped": captcha_skipped,
+                "exported": {"rows": exported[0], "unique": exported[1]},
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    report = render_report(
+        started, config_path, config, fetcher, queries, per_query, per_board, exported, captcha_skipped
+    )
     REPORT_PATH.write_text(report, encoding="utf-8")
     print(report)
-    return 0 if "VERDICT: PASS" in report else 1
+    return 0
 
 
 if __name__ == "__main__":

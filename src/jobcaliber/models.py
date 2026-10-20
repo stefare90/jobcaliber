@@ -47,6 +47,7 @@ class FetchStats:
     seen: int = 0
     usable: int = 0
     new: int = 0
+    captcha_skipped: int = 0
     errors: list[str] = field(default_factory=list)
 
 

@@ -12,7 +12,7 @@ folder named `<order>_<what_it_answers>`; results live in its `output/` (gitigno
 
 ```
 <NN>_<description>/
-├── README.md          what it does, how to run it, verdict
+├── README.md          what it does, how to run it, results
 ├── <description>.py   the harness
 ├── input/             what the run consumes (generated, gitignored)
 └── output/            everything the run produces (generated, gitignored)

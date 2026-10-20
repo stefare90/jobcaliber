@@ -326,3 +326,16 @@ committing `config.yaml`.
   924 unique postings, 0 errors, 0 captcha; only q2 (Embedded @ Sardinia, 3 rows) misses the
   pass bar. `compare_benchmark.py` now also refuses stale results (dataset_sha vs the current
   postings.jsonl). Tests 58/58 green.
+- [x] Fetch report without a verdict (2026-10-19) — the spike no longer emits a
+  PASS/FAIL/THIN verdict: a one-word gate added nothing for a single-operator tool and
+  raised a false alarm (3-row scarce niche reported as a failure). The report now states
+  facts only: usable rows per query, queries below the 5-row reporting bar with their
+  counts, zero-row queries, captcha rows skipped, totals. `FetchStats.captcha_skipped` is
+  measured instead of asserted; `output/stats.json` is persisted and `--report-only`
+  re-renders the report from `output/raw/` without refetching. Tests 64/64 green.
+- [ ] browser-use — **evaluated, not adopted, not scheduled** (user not interested). Facts
+  recorded so the decision is not re-litigated: `browser-use 0.13.11` declares 37 core deps
+  with hard pins that would fight ours (`httpx==0.28.1`, `pydantic==2.13.5`,
+  `openai==2.26.0`), plus `posthog` telemetry and a Chromium/CDP runtime (`browser-harness`,
+  `cdp-use`); it is also LLM-driven per call. Would have to live in a separate venv behind a
+  subprocess boundary emitting the same posting JSON, opt-in for THIN queries only.
