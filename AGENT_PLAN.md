@@ -381,3 +381,13 @@ committing `config.yaml`.
   went 5 -> 26 (25 `no`, 1 `maybe` that was Rome + smart working, which the user's own hybrid
   rule says to reject), DROP/REVIEW 39/22 -> 48/13. Lesson: ask about the physical location, and
   never bundle two dimensions in one option.
+- [x] Exclusion criterion made honest (2026-10-20) — the `keep` label said "Open to any candidate,
+  a normal job", which asserts facts the model cannot know. Three factual rewordings ("contains
+  nothing from the list", "no exclusion found", "applicable") all broke it (0/5 protected-category
+  postings caught): with a neutral label the model defaults to keep. Fixed by inverting the
+  question ("Does this posting contain any of these exclusions? yes/no/missing", gate accept
+  ["no"]) -> 7/8, then 10/10 after adding the abbreviations that actually appear in titles
+  ("cat. protette", "L.68/99", "art. 1 L.68") to `search.exclude`. Full run unchanged in shape
+  (48 DROP / 13 REVIEW) with 5/5 protected postings dropped.
+  - Lesson: with rizzo the answer labels must be factual AND the "interesting" case must be the
+    affirmative one; a negative label makes the model pick the default.

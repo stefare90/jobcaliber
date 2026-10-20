@@ -95,16 +95,16 @@ criteria:
       missing: "unknown"
 
   applicable:
-    gate: { accept: ["keep"] }
+    gate: { accept: ["no"] }
     question:
       type: "choice"
       instructions: >
-        Read the job title first, then the description. Does this posting match any of
-        these exclusions: {{search.exclude}}? Answer keep only if it matches none of them.
+        Does this posting contain any of these exclusions: {{search.exclude}}? Read the
+        job title first, then the description. Answer "yes" only if one of them is present.
       options:
-        keep: "Open to any candidate, a normal job"
-        excluded: "Matches one of the exclusions"
-        missing: "Cannot tell"
+        "yes": "Yes, the posting contains at least one of the exclusions"
+        "no": "No, none of the exclusions appears in the posting"
+        "missing": "The posting does not give enough information to tell"
       missing: "missing"
 
   contract_ok:
