@@ -1,0 +1,14 @@
+[Unit]
+Description=jobcaliber web (offer list)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/jobcaliber
+EnvironmentFile=-%h/.config/jobcaliber/env
+ExecStart=%h/.local/bin/uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

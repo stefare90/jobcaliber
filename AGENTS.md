@@ -63,23 +63,24 @@ Nothing is marked complete without proof of testing:
   of gate is code. No criterion name is hardcoded in the pipeline.
 
 ### B. Pure Pipeline Architecture
-The source tree mirrors the pipeline stages (`ingestion/` -> `scoring/` -> `delivery/`,
-plus the cross-cutting `ai/` and the `app/` wiring):
-1. **Ingestion (`ingestion/fetch.py`)**: query boards and return raw, normalized `JobPosting` objects.
+The source tree is layered (`core/` -> `pipeline/` -> `infrastructure/` -> `application/` ->
+`entrypoints/`, wired by `bootstrap.py`), and inside `pipeline/` there is one folder per step
+(`fetch/`, `scoring/`, `evaluation/`):
+1. **Ingestion (`pipeline/fetch/`)**: query boards and return raw, normalized `JobPosting` objects.
    - No gates, no hard drops, no scoring inside fetch.
    - Paginates cleanly, respects rate limits, never stores captchas, normalizes `NaN -> None`.
-2. **Scoring (`scoring/`)**: query the System One model via the typed HTTP client
-   (`ai/clients.py`, `/v1/systemone`) using questions loaded from `prompts/scoring_systemone/`.
-   - `Scorer` is a common abstract base class (`scoring/base.py`) holding the registry,
+2. **Scoring (`pipeline/scoring/`)**: query the System One model via the typed HTTP client
+   (`infrastructure/ai/`, `/v1/systemone`) with questions projected from `criteria`.
+   - `Scorer` is a common abstract base class (`pipeline/scoring/scorer/base.py`) holding the registry,
      `Scorer.create()`, and the shared normalization helpers. Implementations live in
      separate files (`system_one.py`, `llm.py`) and self-register by engine kind via
      `@Scorer.register(kind)`. Callers never branch on kind; new scorers (e.g. a
      deterministic one) are a new file + registration, no caller changes.
    - Evaluates one question per configured criterion; the rubric is projected from
-     `criteria` into the engine's format (`scoring/projection/`), so the System One JSON and
+     `criteria` into the engine's format (`pipeline/scoring/projection/`), so the System One JSON and
      the LLM markdown can never drift apart. No rubric files on disk for scoring.
    - Agnostic to language and profession: zero hardcoded regex/keywords for cities, salaries, or roles.
-3. **Evaluator (`scoring/evaluator.py`)**: applies config rules onto `ScoringResult`.
+3. **Evaluation (`pipeline/evaluation/`)**: applies config rules onto `ScoringResult`.
    - Gates first (an explicit negative answer drops; a *missing* answer never drops), then the
      weighted 0-100 over `weight > 0` criteria, then review routing.
    - Calculates combined confidence with the per-criterion `penalties` for missing answers.
@@ -88,7 +89,7 @@ plus the cross-cutting `ai/` and the `app/` wiring):
 ### C. System One Model Integration (rizzo-flow / Jev / laya)
 - Use standard `httpx` for wire protocol. Zero heavy agentic frameworks (`langchain`, `llamaindex`, `crewai`).
 - Wire format is strictly `/v1/systemone` using atomic `Choice`, `Score`, and `Noul` primitives.
-- `AIClient` (`ai/client/base.py`) is an ABC with a real contract: each transport implements
+- `AIClient` (`infrastructure/ai/client/base.py`) is an ABC with a real contract: each transport implements
   `build_request()` (path + payload) and `extract()` (response -> domain value), while the
   base owns `_post()` (POST + auth headers + `raise_for_status`), the registry and `create()`.
   Public methods stay per-transport: `SystemOneClient.system_one()`, `LLMClient.complete()`.
@@ -100,7 +101,7 @@ plus the cross-cutting `ai/` and the `app/` wiring):
   (`systemone` | `openai`); `ai.roles` maps pipeline roles (`scorer`,
   `query_expander`) to an engine name. A role accepts the kinds it can
   implement (`scorer`: decision or llm; `query_expander`: llm).
-  `AIClients` (`src/jobcaliber/ai/`) builds the transports once at startup and exposes
+  `AIClients` (`application/clients.py`) builds the transports once at startup and exposes
   the role services (`scorer(criteria)`, `explainer()`, `query_expander()`); services
   receive a resolved client, not a config.
 - Provider quirks that only affect the transport (a required routing header, a versioned
@@ -128,14 +129,15 @@ all four must hold — (1) two or more implementations share a contract, (2) the
 comes from config/data, (3) callers must not branch on the concrete type, (4) the
 implementation is replaceable.
 
-Reference implementations: `Scorer` (`scoring/base.py`) and `AIClient` (`ai/clients.py`).
+Reference implementations: `Scorer` (`pipeline/scoring/scorer/base.py`) and
+`AIClient` (`infrastructure/ai/client/base.py`).
 The policy for each family:
 - an **ABC** (not a bare Protocol) is the common interface; it owns the shared
   `_registry`, `register(key)` and `create(...)`, plus any shared helpers (`static`) and
   shared plumbing (e.g. `AIClient._post`). An ABC with no abstract member is not allowed:
   if there is nothing to implement, the family does not need an interface.
 - each implementation lives in its **own file** under a dedicated folder of the family
-  (`ai/client/`, `scoring/scorer/`) that also holds the family's `base.py` (the ABC);
+  (`ai/client/`, `pipeline/scoring/scorer/`) that also holds the family's `base.py` (the ABC);
   implementations subclass the ABC and self-register with `@Base.register("key")`, and
   the folder's `__init__` imports them so registration runs.
 - callers only ever call `Base.create(...)` and the interface methods; they never see

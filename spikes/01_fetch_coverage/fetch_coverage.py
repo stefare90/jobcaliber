@@ -19,9 +19,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from jobcaliber.config import AppConfig, load_config
-from jobcaliber.ingestion.fetch import Fetcher
-from jobcaliber.models import JobPosting, Query
+from jobcaliber.core.config import AppConfig, load_config
+from jobcaliber.pipeline.fetch import Fetcher
+from jobcaliber.core.models import JobPosting, Query
 
 HERE = Path(__file__).resolve().parent
 INPUT_DIR = HERE / "input"

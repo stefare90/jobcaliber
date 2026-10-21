@@ -1,0 +1,164 @@
+import pytest
+
+from jobcaliber.application.runner import run_once
+from jobcaliber.bootstrap import AppContext
+from jobcaliber.core.config import AppConfig
+from jobcaliber.core.models import EvaluationResult, GateDecision, JobPosting, ScoringResult
+from jobcaliber.infrastructure.persistence import Store
+
+YAML = """
+search:
+  titles: ["Dev"]
+  on_site_locations: ["Turin, Italy"]
+criteria:
+  core_skills:
+    min_threshold: 0.5
+    apply_threshold: 0.67
+    question: {type: "score", instructions: "core?", levels: ["no", "unknown", "partial", "full"], missing: 1}
+  location:
+    gate: {accept: ["accepted"]}
+    question:
+      type: "choice"
+      instructions: "where?"
+      options: {accepted: "in", rejected: "out", unknown: "unknown"}
+      missing: "unknown"
+notifications:
+  telegram: {notify_threshold: 70, review_threshold: 60, min_confidence: 0.4}
+ai:
+  engines:
+    rizzo: {kind: "decision", api: "systemone", base_url: "http://x", model: "m"}
+  roles: {scorer: "rizzo"}
+"""
+
+
+def make_config() -> AppConfig:
+    import yaml as pyyaml
+    return AppConfig.model_validate(pyyaml.safe_load(YAML))
+
+
+class FakeQuery:
+    def __init__(self, keywords="Dev", location="Turin, Italy", remote=False):
+        self.keywords, self.location, self.role, self.remote = keywords, location, keywords, remote
+
+
+class FakeFetcher:
+    def __init__(self, postings):
+        self.postings = postings
+        self.boards = ["linkedin"]
+        self.calls = 0
+
+    def build_queries(self, search):
+        return [FakeQuery()]
+
+    def fetch_board(self, query, board):
+        self.calls += 1
+        stats = type("S", (), {"seen": len(self.postings), "usable": len(self.postings), "new": 0, "errors": []})()
+        return list(self.postings), stats
+
+
+class FakeScorer:
+    def __init__(self, answers=None):
+        self.answers = answers or {"core_skills": 1.0, "location": "accepted"}
+        self.calls = 0
+
+    def score_posting(self, posting):
+        self.calls += 1
+        return ScoringResult(answers=dict(self.answers), missing=set(), confidence=0.9)
+
+
+def posting(n: int) -> JobPosting:
+    return JobPosting(external_id=f"https://x/{n}", url=f"https://x/{n}", title=f"Dev {n}",
+                      company="Acme", source="linkedin", location_raw="Turin, Italy")
+
+
+@pytest.fixture()
+def store(tmp_path):
+    return Store(tmp_path / "jobs.db")
+
+
+def context(config, store, yaml_text=YAML, engine="rizzo") -> AppContext:
+    return AppContext(root=Path("."), config_path=Path("config.yaml"), config=config,
+                      raw_yaml=yaml_text, store=store, engine=engine)
+
+
+def run(config, store, postings, scorer=None, yaml_text=YAML, engine="rizzo", **kw):
+    return run_once(context(config, store, yaml_text, engine),
+                    fetcher=FakeFetcher(postings), scorer=scorer or FakeScorer(),
+                    progress=lambda *_: None, **kw)
+
+
+from pathlib import Path  # noqa: E402  (used by run())
+
+
+def test_first_run_scores_and_persists(store):
+    outcome = run(make_config(), store, [posting(1), posting(2)])
+    assert (outcome.fetched, outcome.new, outcome.scored) == (2, 2, 2)
+    assert outcome.decisions["pass"] == 2
+    assert store.last_run()["status"] == "ok"
+    assert len(store.jobs()) == 2
+
+
+def test_second_run_scores_nothing_with_the_same_config(store):
+    config = make_config()
+    run(config, store, [posting(1), posting(2)])
+    scorer = FakeScorer()
+    outcome = run(config, store, [posting(1), posting(2)], scorer=scorer)
+    assert outcome.scored == 0
+    assert outcome.new == 0          # the same postings, already known
+    assert scorer.calls == 0
+    assert len(store.jobs()) == 2
+
+
+def test_changed_config_rescores_everything(store):
+    config = make_config()
+    run(config, store, [posting(1)])
+    outcome = run(config, store, [posting(1)], yaml_text=YAML + "\n# changed\n")
+    assert outcome.config_v == 2
+    assert outcome.scored == 1
+
+
+def test_new_engine_rescores_everything(store):
+    config = make_config()
+    run(config, store, [posting(1)])
+    outcome = run(config, store, [posting(1)], engine="rizzo", yaml_text=YAML)
+    assert outcome.scored == 0          # same engine: nothing pending
+    config.ai.engines["other"] = config.ai.engines["rizzo"].model_copy()
+    outcome = run(config, store, [posting(1)], engine="other")
+    assert outcome.scored == 1
+
+
+def test_limit_caps_the_number_of_scored_postings(store):
+    config = make_config()
+    outcome = run(config, store, [posting(1), posting(2), posting(3)], limit=2)
+    assert outcome.scored == 2
+    assert len(store.pending(outcome.config_v, "rizzo")) == 1
+
+
+def test_dry_run_writes_nothing(store):
+    config = make_config()
+    outcome = run(config, store, [posting(1)], dry_run=True)
+    assert outcome.dry_run is True and outcome.scored == 1 and outcome.run_id is None
+    assert store.last_run() is None
+    with store.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM evaluations").fetchone()[0] == 0
+
+
+def test_dropped_postings_are_stored_with_the_gate_name(store):
+    config = make_config()
+    run(config, store, [posting(1)], scorer=FakeScorer({"core_skills": 1.0, "location": "rejected"}))
+    rows = store.jobs(decision="drop")
+    assert len(rows) == 1 and rows[0].dropped_by == "location"
+
+
+def test_failure_is_recorded_and_reraised(store):
+    config = make_config()
+
+    class Boom:
+        def score_posting(self, posting):
+            raise RuntimeError("engine down")
+
+    with pytest.raises(RuntimeError, match="engine down"):
+        run(config, store, [posting(1)], scorer=Boom())
+    last = store.last_run()
+    assert last["status"] == "failed" and "engine down" in last["error"]

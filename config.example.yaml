@@ -183,7 +183,5 @@ ai:
         x-opencode-session: "jobcaliber"
   roles:
     scorer: "rizzo"
-    query_expander: "local_llm"
-  # Override a prose prompt: prompts/query_expander/<name>.md.
-  # Scoring rubrics are projected from `criteria` above, not read from files.
+  # Scoring rubrics are projected from `criteria`; no prompt file is read for scoring.
   custom_prompts: {}

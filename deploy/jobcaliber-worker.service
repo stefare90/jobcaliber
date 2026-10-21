@@ -1,0 +1,14 @@
+[Unit]
+Description=jobcaliber worker (schedule + runs)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/jobcaliber
+EnvironmentFile=-%h/.config/jobcaliber/env
+ExecStart=%h/.local/bin/uv run python -m jobcaliber worker
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

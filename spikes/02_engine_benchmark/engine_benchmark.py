@@ -16,10 +16,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from jobcaliber.ai import AIClients
-from jobcaliber.config import AppConfig, AIEngine, load_config
-from jobcaliber.models import GateDecision, JobPosting
-from jobcaliber.scoring import Evaluator
+from jobcaliber.infrastructure.ai import AIClients
+from jobcaliber.core.config import AppConfig, AIEngine, load_config
+from jobcaliber.core.models import GateDecision, JobPosting
+from jobcaliber.pipeline.scoring import Evaluator
 
 HERE = Path(__file__).resolve().parent
 INPUT_PATH = HERE / "input" / "postings.jsonl"

@@ -6,19 +6,19 @@ tuned to your profile.
 
 ## Status
 
-Early build. The scoring brain is done and measured; storage, delivery and scheduling
-are next.
+Early build. Fetch, scoring, evaluation and storage run end-to-end from the command line;
+the web UI and the worker come next.
 
 | Area | State |
 |---|---|
-| Typed config (Pydantic v2, schema v9) | ✅ validated at load, fail-fast |
-| Fetch (JobSpy: LinkedIn + Indeed, paginated) | ✅ `ingestion/fetch.py`, 632 usable rows measured |
+| Typed config (Pydantic v2) | ✅ validated at load, fail-fast |
+| Fetch (JobSpy: LinkedIn + Indeed, paginated) | ✅ `pipeline/fetch/`, 924 unique postings |
 | AI transports (System One + OpenAI wire) | ✅ registry by wire api, config-driven engines |
-| Scorer (per-criterion questions, projected rubrics) | ✅ `scoring/scorer/`, System One + LLM |
-| Evaluator (gates → weighted sum, confidence) | ✅ `scoring/evaluator.py` |
-| Explainer / query expander | ✅ thin clients + prompts, not wired into a run yet |
-| SQLite storage, Telegram, scheduler | ⛔ W1 (`app/`, `delivery/`, `schema.sql` ready) |
-| Test suite | ✅ 97 tests, `uv run pytest` |
+| Scorer (per-criterion questions, projected rubrics) | ✅ `pipeline/scoring/`, System One + LLM |
+| Evaluation (gates → thresholds → decision) | ✅ `pipeline/evaluation/` |
+| SQLite storage + runner | ✅ `infrastructure/persistence/`, `application/runner.py` |
+| Web UI, worker, Telegram | ⛔ next (`entrypoints/`) |
+| Test suite | ✅ 131 tests, `uv run pytest` |
 
 Spikes: `spikes/01_fetch_coverage` (do the queries reach enough offers?) and
 `spikes/02_engine_benchmark` (which engine discriminates best?). Both run end-to-end and
@@ -34,15 +34,15 @@ report real numbers in their own README.
 
 ## How it works (pipeline, fixed order)
 
-1. **Fetch** (`ingestion/fetch.py`) — JobSpy boards (LinkedIn, Indeed), queries built from
+1. **Fetch** (`pipeline/fetch/`) — JobSpy boards (LinkedIn, Indeed), queries built from
    `search.titles × search.locations`, paginated with `page_size` up to
    `board_max_results[board]`, stopping early when a page adds no new posting; rate
    limited, captchas never stored, `NaN → None`. No gates, no scoring here. Max 2-4
    runs/day + jitter/backoff.
-2. **Dedup** — normalized URL (strip `/apply|/application|/thanks`, tracking params,
-   fragment) + normalized `company+title`, `UNIQUE(external_id)`. *(W1)*
-3. **Hard gates** before scoring: location (remote ok / hybrid ≤`hybrid_max_km` / far
-   onsite dropped / unknown→review), title/company kill lists. *(W1: `ingestion/gates.py`)*
+2. **Dedup** — `UNIQUE(external_id)` on the board URL, plus a re-scoring key of
+   `(job, config, engine)` so the same offer is never judged twice with the same rules.
+3. **Gates** before scoring: location and contract type, plus the `applicable` criterion
+   (exclusions such as protected-category postings). A *missing* answer never drops.
 4. **Score** (`scoring/`) — one call carrying every configured question to a System One
    model, answers normalised into `ScoringResult` (`answers` + `missing`). Interchangeable engines (`decision` or `llm`), same
    questions, same independent evaluator.
@@ -99,27 +99,24 @@ jobcaliber/
 ├── AGENTS.md               # project rules (binding) + lessons learned
 ├── AGENT_PLAN.md           # agent-only build plan: done + todo (not user docs)
 ├── README.md               # this file
-├── pyproject.toml          # uv deps (telegram/apscheduler come in W1)
+├── pyproject.toml          # uv deps + [project.scripts] jobcaliber
 ├── uv.lock                 # pinned lockfile
-├── src/jobcaliber/storage/schema.sql   # SQLite WAL schema (normative)
-├── config.example.yaml     # generic template (copy to config.yaml, never commit it)
-├── .env.example            # secret template (copy to .env, never commit it)
-├── .pi/extensions/         # pi project extensions (git-guard: commit/push approval)
-├── prompts/                # query_expander (scoring rubrics are projected from criteria)
-├── src/jobcaliber/         # package, split by pipeline stage:
-│   ├── config.py           #   typed config (search, criteria, gates) + validators
-│   ├── env.py              #   minimal .env parser, real environment wins
-│   ├── models.py           #   domain entities (JobPosting, ScoringResult, ...)
-│   ├── ai/                 #   client/ (AIClient base + systemone, openai), prompts, registry
-│   ├── ingestion/          #   fetch, query_expander (+ W1: dedup, gates)
-│   ├── scoring/            #   scorer/ (system_one, llm), projection/, evaluator
-│   ├── delivery/           #   W1: notify
-│   └── app/                #   W1: CLI, scheduler, web
+├── src/jobcaliber/
+│   ├── core/               #   config, models, env: no I/O, no frameworks
+│   ├── pipeline/           #   one folder per step
+│   │   ├── fetch/          #     queries.py, parsing.py, fetcher.py
+│   │   ├── scoring/        #     scorer/ (system_one, llm), projection/ (criteria → prompt)
+│   │   └── evaluation/     #     evaluator.py (gates, thresholds, confidence)
+│   ├── infrastructure/     #   persistence/ (Store + schema.sql), ai/ (transports, prompts)
+│   ├── application/        #   runner.py (the run), clients.py (transports → services)
+│   ├── entrypoints/        #   cli.py (web/ and worker.py next)
+│   └── bootstrap.py        #   composition root: config → Store → clients
+├── deploy/                 # systemd units: web + worker
 ├── spikes/                 # experiments, one folder per question
 │   ├── README.md           #   index + input/output convention
 │   ├── 01_fetch_coverage/  #   do the queries reach enough offers?
 │   └── 02_engine_benchmark/#   which engine discriminates best?
-├── tests/                  # pytest (W1: dedup identity, gates, idempotency)
+├── tests/                  # pytest, mirrors src/ layers
 └── data/                   # DB + raw cache (gitignored, only .gitkeep in git)
 ```
 
