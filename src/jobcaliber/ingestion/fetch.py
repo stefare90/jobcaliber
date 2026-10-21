@@ -43,7 +43,7 @@ def row_usable(row: dict) -> bool:
     return not is_captcha_text(blob)
 
 
-def to_job_posting(board: str, search_id: str, row: dict) -> JobPosting:
+def to_job_posting(board: str, query: Query, row: dict) -> JobPosting:
     s_min = clean_value(row.get("min_amount"))
     s_max = clean_value(row.get("max_amount"))
     return JobPosting(
@@ -57,7 +57,9 @@ def to_job_posting(board: str, search_id: str, row: dict) -> JobPosting:
         salary_min=float(s_min) if s_min is not None else None,
         salary_max=float(s_max) if s_max is not None else None,
         description=clean_value(row.get("description")),
-        search_id=search_id,
+        query_term=query.keywords,
+        query_location=query.location,
+        query_remote=query.remote,
     )
 
 
@@ -92,7 +94,7 @@ class Fetcher:
     def _scrape(self, **kwargs):
         return scrape_jobs(**kwargs)
 
-    def fetch_board(self, query: Query, board: str, search_id: str) -> tuple[list[JobPosting], FetchStats]:
+    def fetch_board(self, query: Query, board: str) -> tuple[list[JobPosting], FetchStats]:
         stats = FetchStats()
         postings: list[JobPosting] = []
         max_results = self.scraping.max_results(board)
@@ -123,7 +125,7 @@ class Fetcher:
                         continue
                     if row_usable(row):
                         stats.usable += 1
-                    posting = to_job_posting(board, search_id, row)
+                    posting = to_job_posting(board, query, row)
                     if posting.external_id not in self.seen_ids:
                         self.seen_ids.add(posting.external_id)
                         stats.new += 1
@@ -144,7 +146,7 @@ class Fetcher:
         for qi, query in enumerate(queries, start=1):
             for board in self.boards:
                 try:
-                    postings, stats = self.fetch_board(query, board, f"q{qi}")
+                    postings, stats = self.fetch_board(query, board)
                 except Exception as e:
                     stats = FetchStats(errors=[f"q{qi}: {type(e).__name__}: {e}"])
                     postings = []

@@ -23,7 +23,9 @@ class JobPosting:
     salary_min: float | None = None
     salary_max: float | None = None
     posted_at: str | None = None
-    search_id: str | None = None
+    query_term: str | None = None
+    query_location: str | None = None
+    query_remote: bool = False
 
 
 @dataclass

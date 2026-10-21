@@ -53,7 +53,9 @@ def load_postings(path: Path = INPUT_PATH) -> list[JobPosting]:
                 salary_min=row.get("salary_min"),
                 salary_max=row.get("salary_max"),
                 posted_at=row.get("posted_at"),
-                search_id=row.get("search_id"),
+                query_term=row.get("query_term"),
+                query_location=row.get("query_location"),
+                query_remote=bool(row.get("query_remote")),
             )
         )
     return postings

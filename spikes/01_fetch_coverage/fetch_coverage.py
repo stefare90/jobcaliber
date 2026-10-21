@@ -49,7 +49,9 @@ def postings_to_json(postings: list[JobPosting]) -> list[dict]:
             "salary_min": p.salary_min,
             "salary_max": p.salary_max,
             "posted_at": p.posted_at,
-            "search_id": p.search_id,
+            "query_term": p.query_term,
+            "query_location": p.query_location,
+            "query_remote": p.query_remote,
         }
         for p in postings
     ]
@@ -264,7 +266,7 @@ def main() -> int:
 
     for i, query in enumerate(queries, start=1):
         for board in fetcher.boards:
-            postings, stats = fetcher.fetch_board(query, board, f"q{i}")
+            postings, stats = fetcher.fetch_board(query, board)
             (RAW_DIR / f"q{i}_{board}.json").write_text(
                 json.dumps(postings_to_json(postings), ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
             )

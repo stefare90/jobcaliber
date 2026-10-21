@@ -71,12 +71,14 @@ def test_row_usable_requires_title_company_url_and_no_captcha():
 
 
 def test_to_job_posting_maps_schema_fields():
-    posting = to_job_posting("linkedin", "q1", {"id": "7", "job_url": None, "company": "Acme",
+    posting = to_job_posting("linkedin", Query("Dev", "Sardinia, Italy", "Dev"), {"id": "7", "job_url": None, "company": "Acme",
                                                 "title": "Dev", "location": "Cagliari",
                                                 "date_posted": "2026-10-01", "min_amount": 38,
                                                 "max_amount": 42, "description": "d"})
     assert posting.external_id == "linkedin:7"
-    assert posting.search_id == "q1"
+    assert posting.query_term == "Dev"
+    assert posting.query_location == "Sardinia, Italy"
+    assert posting.query_remote is False
     assert posting.salary_min == 38.0
 
 
@@ -97,7 +99,7 @@ def test_fetch_board_drops_captcha_and_dedups():
          "min_amount": None, "max_amount": None},
     ])]
     fetcher = Fetcher(make_scraping(), scrape_fn=lambda **kw: pages.pop(0), sleep_fn=lambda s: None)
-    records, stats = fetcher.fetch_board(Query("Dev", "Sardinia, Italy", "Dev"), "linkedin", "q1")
+    records, stats = fetcher.fetch_board(Query("Dev", "Sardinia, Italy", "Dev"), "linkedin")
     assert stats.seen == 3
     assert stats.usable == 2
     assert stats.new == 1
@@ -119,7 +121,7 @@ def test_fetch_board_paginates_until_short_page():
         return full if kw["offset"] == 0 else short
 
     fetcher = Fetcher(make_scraping(page_size=50), scrape_fn=fake, sleep_fn=lambda s: None)
-    records, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev", True), "linkedin", "q2")
+    records, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev", True), "linkedin")
     assert seen_offsets == [0, 50]
     assert stats.seen == 51
     assert len(records) == 51
@@ -140,7 +142,7 @@ def test_fetch_board_respects_per_board_max_results():
 
     scraping = make_scraping(page_size=50, board_max_results={"linkedin": 120, "indeed": 500})
     fetcher = Fetcher(scraping, scrape_fn=fake, sleep_fn=lambda s: None)
-    _, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev", True), "linkedin", "q2")
+    _, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev", True), "linkedin")
     assert calls == [0, 50, 100]
     assert stats.seen == 150
 
@@ -156,7 +158,7 @@ def test_fetch_board_stops_when_a_page_adds_no_new_posting():
         return repeated
 
     fetcher = Fetcher(make_scraping(page_size=50), scrape_fn=fake, sleep_fn=lambda s: None)
-    _, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev", True), "linkedin", "q2")
+    _, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev", True), "linkedin")
     assert calls == [0, 50]
     assert stats.new == 1
 
@@ -181,6 +183,6 @@ def test_fetch_board_counts_skipped_captcha_rows():
          "min_amount": None, "max_amount": None},
     ])
     fetcher = Fetcher(make_scraping(), scrape_fn=lambda **kw: frame, sleep_fn=lambda s: None)
-    records, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev"), "linkedin", "q1")
+    records, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev"), "linkedin")
     assert stats.captcha_skipped == 1
     assert [r.url for r in records] == ["http://a"]

@@ -101,7 +101,7 @@ jobcaliber/
 ├── README.md               # this file
 ├── pyproject.toml          # uv deps (telegram/apscheduler come in W1)
 ├── uv.lock                 # pinned lockfile
-├── schema.sql              # SQLite WAL: jobs/runs/feedback/config_versions (normative)
+├── src/jobcaliber/storage/schema.sql   # SQLite WAL schema (normative)
 ├── config.example.yaml     # generic template (copy to config.yaml, never commit it)
 ├── .env.example            # secret template (copy to .env, never commit it)
 ├── .pi/extensions/         # pi project extensions (git-guard: commit/push approval)
