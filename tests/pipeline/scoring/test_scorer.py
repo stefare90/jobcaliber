@@ -50,7 +50,7 @@ def test_systemone_scorer_maps_levels_and_choices():
     assert result.answers["tools"] == pytest.approx(0.5)
     assert result.answers["salary_ok"] == "yes"
     assert result.missing == set()
-    assert result.confidence == pytest.approx(0.866, abs=1e-3)
+    assert result.confidence == 0.87   # (0.9 + 0.8 + 0.9) / 3 = 0.8666... rounded
 
 
 def test_systemone_scorer_flags_missing_and_keeps_neutral_score():
@@ -123,3 +123,20 @@ def test_scorer_rejects_invalid_criteria_at_construction():
             systemone_client({}),
             {"x": Criterion(min_threshold=0.9, apply_threshold=0.5, question=score_q())},
         )
+
+
+def test_scores_are_rounded_to_two_decimals():
+    """4 levels give thirds: 2/3 must be stored as 0.67, never 0.6666..."""
+    criteria = {"core_skills": Criterion(min_threshold=0.5, question=Question(
+        type="score", instructions="?", levels=["no", "unknown", "partial", "full"], missing=1))}
+    client = systemone_client({"core_skills": {"type": "score", "score": 2}})
+    result = SystemOneScorer(client, criteria).score_posting(POSTING)
+    assert result.answers["core_skills"] == 0.67
+    assert str(result.answers["core_skills"]) == "0.67"
+
+
+def test_confidence_is_rounded_too():
+    client = systemone_client({"core_skills": {"type": "score", "score": 3, "confidence": 0.6666}})
+    criteria = {"core_skills": Criterion(min_threshold=0.5, question=score_q())}
+    result = SystemOneScorer(client, criteria).score_posting(POSTING)
+    assert result.confidence == 0.67

@@ -56,6 +56,10 @@ class Scorer(ABC):
         return "\n".join(parts)
 
     @staticmethod
+    def score(value: Any) -> float:
+        return round(Scorer.clamp(value), 2)
+
+    @staticmethod
     def clamp(value: Any, low: float = 0.0, high: float = 1.0) -> float:
         try:
             return min(high, max(low, float(value)))
@@ -65,11 +69,12 @@ class Scorer(ABC):
     @staticmethod
     def build_result(*, answers: dict[str, float | str], missing: set[str] | None = None,
                      confidence: Any = 0.85, reason: str = "") -> ScoringResult:
+        """Normalise answers: clamped to 0-1 and rounded to two decimals (no repeating values)."""
         return ScoringResult(
-            answers={key: (Scorer.clamp(value) if isinstance(value, (int, float)) else str(value))
+            answers={key: (Scorer.score(value) if isinstance(value, (int, float)) else str(value))
                      for key, value in answers.items()},
             missing=set(missing or set()),
-            confidence=Scorer.clamp(confidence),
+            confidence=Scorer.score(confidence),
             summary_reason=reason,
         )
 
