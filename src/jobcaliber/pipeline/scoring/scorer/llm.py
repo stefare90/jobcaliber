@@ -4,7 +4,7 @@ from __future__ import annotations
 from jobcaliber.infrastructure.ai.client import LLMClient
 from jobcaliber.infrastructure.ai.prompts import PromptStore
 from jobcaliber.core.config import Criterion, validate_criteria
-from jobcaliber.core.models import JobPosting, ScoringResult
+from jobcaliber.core.domain import JobPosting, ScoringResult
 from jobcaliber.pipeline.scoring.projection import build_llm_prompt
 from jobcaliber.pipeline.scoring.scorer.base import Scorer
 

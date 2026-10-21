@@ -4,7 +4,7 @@ from __future__ import annotations
 from jobcaliber.infrastructure.ai.client import SystemOneClient
 from jobcaliber.infrastructure.ai.prompts import PromptError
 from jobcaliber.core.config import Criterion, validate_criteria
-from jobcaliber.core.models import JobPosting, ScoringResult
+from jobcaliber.core.domain import JobPosting, ScoringResult
 from jobcaliber.pipeline.scoring.projection import build_systemone_questions
 from jobcaliber.pipeline.scoring.scorer.base import Scorer
 

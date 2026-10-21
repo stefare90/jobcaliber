@@ -5,7 +5,7 @@ import pytest
 
 from jobcaliber.infrastructure.ai import LLMClient, PromptStore, SystemOneClient
 from jobcaliber.core.config import AIEngine, Criterion, GateAccept, Question
-from jobcaliber.core.models import GateDecision, JobPosting, ScoringResult
+from jobcaliber.core.domain import GateDecision, JobPosting, ScoringResult
 from jobcaliber.pipeline.evaluation import Evaluator
 from jobcaliber.pipeline.scoring import LLMScorer, Scorer, SystemOneScorer
 from jobcaliber.pipeline.scoring.scorer.system_one import validate_answers

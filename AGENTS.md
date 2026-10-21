@@ -65,7 +65,8 @@ Nothing is marked complete without proof of testing:
 ### B. Pure Pipeline Architecture
 The source tree is layered (`core/` -> `pipeline/` -> `infrastructure/` -> `application/` ->
 `entrypoints/`, wired by `bootstrap.py`), and inside `pipeline/` there is one folder per step
-(`fetch/`, `scoring/`, `evaluation/`):
+(`fetch/`, `scoring/`, `evaluation/`), with `core/` free of I/O — reading `config.yaml`
+and `.env` lives in `infrastructure/config_loader.py` and `infrastructure/env.py`:
 1. **Ingestion (`pipeline/fetch/`)**: query boards and return raw, normalized `JobPosting` objects.
    - No gates, no hard drops, no scoring inside fetch.
    - Paginates cleanly, respects rate limits, never stores captchas, normalizes `NaN -> None`.

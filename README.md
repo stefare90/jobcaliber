@@ -37,7 +37,7 @@ the command line; the web app and the worker are next.
 | Evaluation: gates → thresholds → `pass`/`review`/`drop` | ✅ |
 | SQLite storage, idempotent evaluations, schema guard + migrations | ✅ |
 | CLI: `run`, `status`, `jobs`, `db` | ✅ |
-| Worker: schedule + queue (`runs` as the queue) | ⛔ next |
+| Worker: schedule + queue (`runs` as the queue) | ✅ `jobcaliber-worker` |
 | Web UI: offer table, detail, Sì/No feedback | ⛔ next |
 | Telegram notification with a link to the web UI | ⛔ after the web app |
 | Calibration on your own verdicts | ⛔ needs the web app |
@@ -59,7 +59,7 @@ the command line; the web app and the worker are next.
    - a **missing** answer never drops: it becomes neutral, lowers the confidence and forces
      `review`;
    - everything above `apply_threshold` is `pass`.
-5. **Storage** (`infrastructure/persistence/`) — SQLite with WAL. Every judgement is a row in
+5. **Storage** (`infrastructure/database/`) — SQLite with WAL. Every judgement is a row in
    `evaluations`, unique per `(job, config version, engine)`: re-running the same configuration
    is a no-op, changing it re-scores everything.
 6. **Delivery** — the web app reads the database (⛔ next); Telegram will only send a link.
@@ -97,32 +97,40 @@ engine families is generated from it, so there is no prompt file to keep in sync
 
 ```
 src/jobcaliber/
-├── core/                 # config, models, env: no I/O, no frameworks
+├── core/                 # models only: no I/O, no frameworks
+│   ├── domain.py         #   JobPosting, ScoringResult, EvaluationResult, GateDecision
+│   └── config/           #   search.py · criteria.py · ai.py · settings.py · app.py
 ├── pipeline/             # one folder per step
-│   ├── fetch/            #   queries.py · parsing.py · fetcher.py
+│   ├── fetch/            #   models.py · queries.py · parsing.py · fetcher.py
 │   ├── scoring/          #   scorer/ (systemone, llm) · projection/ (criteria → prompt)
 │   └── evaluation/       #   evaluator.py (gates, thresholds, confidence)
 ├── infrastructure/       # how to talk to the world
-│   ├── persistence/      #   Store, schema.sql, migrations/
-│   └── ai/               #   transports (systemone, openai), prompt rendering
+│   ├── database/         #   store.py · schema.py · migrations/
+│   ├── ai/               #   transports (systemone, openai), prompt rendering
+│   ├── config_loader.py  #   reads config.yaml
+│   └── env.py            #   reads .env
 ├── application/          # what happens, in which order
 │   ├── runner.py         #   one run: fetch → score → evaluate → save
+│   ├── worker.py         #   schedule + claim queued runs
+│   ├── schedule.py       #   "is a slot due?" (pure functions)
 │   └── clients.py        #   transports → services, from config
-├── entrypoints/          # the processes
-│   ├── cli.py            #   run | status | jobs | db
-│   └── (worker.py, web/) #   next
+├── entrypoints/          # one module per process
+│   ├── cli.py            #   jobcaliber        → run | status | jobs | db
+│   ├── worker.py         #   jobcaliber-worker → the worker loop
+│   └── web/              #   next: uvicorn jobcaliber.entrypoints.web:create_app
 └── bootstrap.py          # composition root
 ```
 
-The layering is enforced by tests (`tests/test_layers.py`): `core` has no I/O and no framework
-imports, no layer imports `entrypoints`, and infrastructure never depends upwards. The web and
+The layering is enforced by tests (`tests/test_layers.py`): `core` has no I/O, no framework
+imports and does not read files; no layer imports `entrypoints`; infrastructure never depends
+upwards. The web and
 the worker will be thin: they will not import the pipeline, only the database and the runner.
 
 **Process types.** One deployable package, two long-lived processes:
 
 | Process | Role | Talks to |
 |---|---|---|
-| `jobcaliber-web` | shows offers, records your Sì/No, requests a run | the database |
+| `jobcaliber-web` (next) | shows offers, records your Sì/No, requests a run | the database |
 | `jobcaliber-worker` | owns the schedule, claims run requests, executes them | the database, the boards, the model |
 
 They never call each other: **the database is the contract**. `runs` doubles as the queue —
@@ -168,6 +176,10 @@ uv run jobcaliber run
 uv run jobcaliber run --limit 5 --max-queries 1     # quick check, ~40s
 uv run jobcaliber run --dry-run                     # nothing is written
 uv run jobcaliber run --engine jev                  # score with another configured engine
+
+# the worker (systemd keeps it alive): schedule + queued requests, one run at a time
+uv run jobcaliber-worker                            # loop
+uv run jobcaliber-worker --once --limit 5 --max-queries 1   # one bounded tick
 
 # what happened / what is stored
 uv run jobcaliber status                            # last run + notifiable offers
@@ -234,7 +246,7 @@ and your Sì/No becomes the labels that calibrate the thresholds.
 ## Development
 
 ```bash
-uv run pytest -q                      # 145 tests, layering included
+uv run pytest -q                      # 159 tests, layering included
 uv run python spikes/01_fetch_coverage/fetch_coverage.py     # do the queries reach enough offers?
 uv run python spikes/02_engine_benchmark/engine_benchmark.py --engine rizzo --limit 20
 uv run python spikes/03_calibration/calibrate.py rizzo       # measure against labels.yaml

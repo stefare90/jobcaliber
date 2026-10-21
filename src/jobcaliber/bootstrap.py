@@ -4,9 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from jobcaliber.core.config import AppConfig, load_config
+from jobcaliber.core.config import AppConfig
+from jobcaliber.infrastructure.config_loader import load_config
 from jobcaliber.application.clients import AIClients
-from jobcaliber.infrastructure.persistence import Store
+from jobcaliber.infrastructure.database import Store
 
 
 @dataclass

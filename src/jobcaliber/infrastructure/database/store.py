@@ -1,29 +1,13 @@
-"""Store: the SQLite persistence layer. One connection per caller, WAL, short transactions."""
+"""Store: the persistence API used by the pipeline and the web app."""
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from jobcaliber.core.models import EvaluationResult, JobPosting, ScoringResult
-from jobcaliber.infrastructure.persistence.schema_version import SCHEMA_VERSION
-
-SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-
-
-def schema_objects(conn: sqlite3.Connection) -> dict[str, str]:
-    """The shape of a database: name -> normalised DDL, ignoring sqlite internals."""
-    rows = conn.execute(
-        "SELECT name, sql FROM sqlite_master "
-        "WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%' AND sql IS NOT NULL"
-    ).fetchall()
-    return {row["name"]: " ".join(row["sql"].split()) for row in rows}
-
-
-def table_count(conn: sqlite3.Connection) -> int:
-    return conn.execute("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'").fetchone()[0]
+from jobcaliber.core.domain import EvaluationResult, JobPosting, ScoringResult
+from jobcaliber.infrastructure.database.schema import ensure_schema
 
 
 @dataclass
@@ -58,37 +42,8 @@ class JobRow:
     missing: list[str] = field(default_factory=list)
 
 
-def config_sha(yaml_text: str) -> str:
+def _content_sha(yaml_text: str) -> str:
     return hashlib.sha256(yaml_text.encode("utf-8")).hexdigest()[:16]
-
-
-class SchemaMismatch(RuntimeError):
-    """The database schema is not the one this code expects and must be migrated."""
-
-
-def ensure_schema(conn: sqlite3.Connection, path: Path) -> None:
-    """Create an empty database from schema.sql; never alter an existing one."""
-    current = conn.execute("PRAGMA user_version").fetchone()[0]
-    if table_count(conn) == 0:
-        conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        return
-    if current == SCHEMA_VERSION:
-        return
-    if current == 0:
-        raise SchemaMismatch(
-            f"database at {path} was created before schema versioning (v0) and cannot be "
-            f"migrated. Delete it and rerun: rm {path}"
-        )
-    if current > SCHEMA_VERSION:
-        raise SchemaMismatch(
-            f"database schema v{current} at {path} was created by a newer version than the "
-            f"code (v{SCHEMA_VERSION}); update the code or use another database"
-        )
-    raise SchemaMismatch(
-        f"database schema v{current} at {path}, code expects v{SCHEMA_VERSION}. "
-        f"Run: jobcaliber db migrate"
-    )
 
 
 class Store:
@@ -110,7 +65,7 @@ class Store:
 
     def config_version(self, yaml_text: str) -> tuple[int, str]:
         """Return (v, sha); a new version is created only when the content is new."""
-        sha = config_sha(yaml_text)
+        sha = _content_sha(yaml_text)
         with self.connect() as conn:
             row = conn.execute("SELECT v FROM config_versions WHERE sha = ?", (sha,)).fetchone()
             if row:
@@ -134,6 +89,40 @@ class Store:
             )
             return int(cur.lastrowid)
 
+    def request_run(self, trigger: str = "manual") -> int:
+        """Queue a run: the worker claims it. This is how the web asks for a run."""
+        with self.connect() as conn:
+            cur = conn.execute("INSERT INTO runs (trigger, status) VALUES (?, 'requested')", (trigger,))
+            return int(cur.lastrowid)
+
+    def claim_run(self, config_v: int, engine: str) -> int | None:
+        """Atomically turn the oldest request into a running run; None when the queue is empty."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM runs WHERE status = 'requested' ORDER BY id LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            updated = conn.execute(
+                "UPDATE runs SET status = 'running', started_at = datetime('now'), "
+                "config_v = ?, engine = ? WHERE id = ? AND status = 'requested'",
+                (config_v, engine, row["id"]),
+            ).rowcount
+            return int(row["id"]) if updated else None
+
+    def requeue(self, run_id: int, max_attempts: int) -> bool:
+        """Re-queue a failed run while attempts remain. False when it is exhausted."""
+        with self.connect() as conn:
+            row = conn.execute("SELECT attempt FROM runs WHERE id = ?", (run_id,)).fetchone()
+            if row is None or row["attempt"] >= max_attempts:
+                return False
+            conn.execute(
+                "UPDATE runs SET status = 'requested', attempt = attempt + 1, error = NULL "
+                "WHERE id = ?",
+                (run_id,),
+            )
+            return True
+
     def finish_run(self, run_id: int, stats: RunStats, duration_ms: int) -> None:
         with self.connect() as conn:
             conn.execute(
@@ -155,6 +144,13 @@ class Store:
     def run(self, run_id: int) -> dict | None:
         with self.connect() as conn:
             row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+            return dict(row) if row else None
+
+    def last_scheduled_run(self) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM runs WHERE trigger = 'schedule' ORDER BY id DESC LIMIT 1"
+            ).fetchone()
             return dict(row) if row else None
 
     def last_run(self) -> dict | None:

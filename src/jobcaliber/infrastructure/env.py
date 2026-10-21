@@ -1,4 +1,4 @@
-"""Minimal .env loader: real environment always wins over the file."""
+"""Load a `.env` file into the process environment. Real environment variables always win."""
 from __future__ import annotations
 
 import os

@@ -1,13 +1,33 @@
 import importlib
 import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from jobcaliber.infrastructure.persistence import SCHEMA_VERSION, SchemaMismatch, Store, migrate, schema_version
-from jobcaliber.infrastructure.persistence.store import ensure_schema
+from jobcaliber.infrastructure.database import (
+    SCHEMA_VERSION,
+    SchemaMismatch,
+    Store,
+    migrate,
+    schema_objects,
+    schema_version,
+)
+from jobcaliber.infrastructure.database import SCHEMA_PATH
 
-SCHEMA = "jobcaliber.infrastructure.persistence.schema_version.SCHEMA_VERSION"
+def storage_connect(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def reference_objects() -> dict[str, str]:
+    reference = sqlite3.connect(":memory:")
+    reference.row_factory = sqlite3.Row
+    reference.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    objects = schema_objects(reference)
+    reference.close()
+    return objects
 
 
 def quote(base: str, version: int) -> sqlite3.Connection:
@@ -28,7 +48,7 @@ def test_new_database_is_created_at_the_current_version(tmp_path):
 def test_reopening_keeps_data(tmp_path):
     path = tmp_path / "jobs.db"
     store = Store(path)
-    store.upsert_posting(__import__("jobcaliber.core.models", fromlist=["JobPosting"]).JobPosting(
+    store.upsert_posting(__import__("jobcaliber.core.domain", fromlist=["JobPosting"]).JobPosting(
         external_id="x", url="x", title="t", company="c", source="s"))
     store2 = Store(path)
     with store2.connect() as conn:
@@ -65,7 +85,7 @@ def test_database_from_a_newer_code_is_rejected(tmp_path):
 def test_migrate_applies_pending_steps_and_keeps_data(tmp_path, monkeypatch):
     path = tmp_path / "jobs.db"
     store = Store(path)
-    store.upsert_posting(__import__("jobcaliber.core.models", fromlist=["JobPosting"]).JobPosting(
+    store.upsert_posting(__import__("jobcaliber.core.domain", fromlist=["JobPosting"]).JobPosting(
         external_id="x", url="x", title="t", company="c", source="s"))
     with quote(path, SCHEMA_VERSION - 1):
         pass
@@ -74,7 +94,7 @@ def test_migrate_applies_pending_steps_and_keeps_data(tmp_path, monkeypatch):
         conn.execute("ALTER TABLE jobs ADD COLUMN extra TEXT")
 
     fake = SimpleNamespace(VERSION=SCHEMA_VERSION, up=up, __name__="m001_fake")
-    module = importlib.import_module("jobcaliber.infrastructure.persistence.migrate")
+    module = importlib.import_module("jobcaliber.infrastructure.database.migrate")
     monkeypatch.setattr(module, "MIGRATIONS", [fake])
 
     result = module.migrate(path, out=lambda *_: None)
@@ -96,7 +116,7 @@ def test_dry_run_changes_nothing(tmp_path, monkeypatch):
     with quote(path, SCHEMA_VERSION - 1):
         pass
     fake = SimpleNamespace(VERSION=SCHEMA_VERSION, up=lambda conn: None, __name__="m001_fake")
-    module = importlib.import_module("jobcaliber.infrastructure.persistence.migrate")
+    module = importlib.import_module("jobcaliber.infrastructure.database.migrate")
     monkeypatch.setattr(module, "MIGRATIONS", [fake])
 
     result = module.migrate(path, dry_run=True, out=lambda *_: None)
@@ -118,7 +138,7 @@ def test_a_failing_migration_rolls_back(tmp_path, monkeypatch):
         raise RuntimeError("boom")
 
     fake = SimpleNamespace(VERSION=SCHEMA_VERSION, up=up, __name__="m001_bad")
-    module = importlib.import_module("jobcaliber.infrastructure.persistence.migrate")
+    module = importlib.import_module("jobcaliber.infrastructure.database.migrate")
     monkeypatch.setattr(module, "MIGRATIONS", [fake])
 
     with pytest.raises(RuntimeError, match="migration m001_bad failed"):
@@ -157,3 +177,62 @@ def test_migrate_rejects_a_pre_versioning_database(tmp_path):
         pass
     with pytest.raises(RuntimeError, match="no migration path"):
         migrate(path, out=lambda *_: None)
+
+
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
+
+
+def test_migration_reproduces_schema_sql_exactly(tmp_path, monkeypatch):
+    """The migrated schema must be indistinguishable from a freshly created one."""
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.executescript((FIXTURES / "schema_v2.sql").read_text(encoding="utf-8"))
+    conn.execute("PRAGMA user_version = 2")
+    conn.execute("INSERT INTO runs (trigger, status, fetched) VALUES ('cli', 'ok', 7)")
+    conn.execute(
+        "INSERT INTO jobs (external_id, title, company, source) VALUES ('x', 't', 'c', 'linkedin')"
+    )
+    conn.execute(
+        "INSERT INTO evaluations (job_id, config_v, engine, decision) VALUES (1, 1, 'rizzo', 'pass')"
+    )
+    conn.commit()
+    conn.close()
+
+    module = importlib.import_module("jobcaliber.infrastructure.database.migrate")
+    monkeypatch.setattr(module, "MIGRATIONS", [
+        importlib.import_module(
+            "jobcaliber.infrastructure.database.migrations.m002_runs_requested_status"
+        )
+    ])
+    module.migrate(path, out=lambda *_: None)
+
+    with storage_connect(path) as conn:
+        assert schema_version(conn) == SCHEMA_VERSION
+        assert dict(conn.execute("SELECT trigger, status, fetched FROM runs").fetchone()) == {
+            "trigger": "cli", "status": "ok", "fetched": 7
+        }
+        assert conn.execute("SELECT COUNT(*) FROM evaluations").fetchone()[0] == 1
+        assert schema_objects(conn) == reference_objects()
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_migrated_runs_accepts_the_new_status(tmp_path, monkeypatch):
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript((FIXTURES / "schema_v2.sql").read_text(encoding="utf-8"))
+    conn.execute("PRAGMA user_version = 2")
+    conn.commit()
+    conn.close()
+
+    module = importlib.import_module("jobcaliber.infrastructure.database.migrate")
+    monkeypatch.setattr(module, "MIGRATIONS", [
+        importlib.import_module(
+            "jobcaliber.infrastructure.database.migrations.m002_runs_requested_status"
+        )
+    ])
+    module.migrate(path, out=lambda *_: None)
+
+    with storage_connect(path) as conn:
+        conn.execute("INSERT INTO runs (trigger, status) VALUES ('manual', 'requested')")
+        assert conn.execute("SELECT attempt FROM runs").fetchone()[0] == 1

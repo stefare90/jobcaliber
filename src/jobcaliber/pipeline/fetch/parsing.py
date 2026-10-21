@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import math
 
-from jobcaliber.core.models import JobPosting, Query
+from jobcaliber.core.domain import JobPosting
+from jobcaliber.pipeline.fetch.models import Query
 
 POLITENESS_GAP_S = 2
 

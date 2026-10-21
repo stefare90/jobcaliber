@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from jobcaliber.core.config import AppConfig, Criterion, GateAccept, GateMinScore
-from jobcaliber.core.models import EvaluationResult, GateDecision, ScoringResult
+from jobcaliber.core.domain import EvaluationResult, GateDecision, ScoringResult
 
 NEUTRAL_SCORE = 0.5
 

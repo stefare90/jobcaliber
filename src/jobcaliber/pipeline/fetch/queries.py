@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from jobcaliber.core.config import Search
-from jobcaliber.core.models import Query
+from jobcaliber.pipeline.fetch.models import Query
 
 
 def build_queries(search: Search) -> list[Query]:

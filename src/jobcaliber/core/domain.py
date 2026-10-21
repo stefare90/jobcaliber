@@ -1,4 +1,4 @@
-"""Domain models and data structures for jobcaliber."""
+"""Domain vocabulary: the entities the problem names. No I/O, no config, no storage."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -26,23 +26,6 @@ class JobPosting:
     query_term: str | None = None
     query_location: str | None = None
     query_remote: bool = False
-
-
-@dataclass
-class Query:
-    keywords: str
-    location: str
-    role: str
-    remote: bool = False
-
-
-@dataclass
-class FetchStats:
-    seen: int = 0
-    usable: int = 0
-    new: int = 0
-    captcha_skipped: int = 0
-    errors: list[str] = field(default_factory=list)
 
 
 @dataclass

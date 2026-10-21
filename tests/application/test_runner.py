@@ -3,8 +3,8 @@ import pytest
 from jobcaliber.application.runner import run_once
 from jobcaliber.bootstrap import AppContext
 from jobcaliber.core.config import AppConfig
-from jobcaliber.core.models import EvaluationResult, GateDecision, JobPosting, ScoringResult
-from jobcaliber.infrastructure.persistence import Store
+from jobcaliber.core.domain import EvaluationResult, GateDecision, JobPosting, ScoringResult
+from jobcaliber.infrastructure.database import Store
 
 YAML = """
 search:
@@ -151,14 +151,14 @@ def test_dropped_postings_are_stored_with_the_gate_name(store):
     assert len(rows) == 1 and rows[0].dropped_by == "location"
 
 
-def test_failure_is_recorded_and_reraised(store):
+def test_failure_is_recorded_and_reported(store):
     config = make_config()
 
     class Boom:
         def score_posting(self, posting):
             raise RuntimeError("engine down")
 
-    with pytest.raises(RuntimeError, match="engine down"):
-        run(config, store, [posting(1)], scorer=Boom())
+    outcome = run(config, store, [posting(1)], scorer=Boom())
+    assert outcome.failed is True and "engine down" in outcome.error
     last = store.last_run()
     assert last["status"] == "failed" and "engine down" in last["error"]

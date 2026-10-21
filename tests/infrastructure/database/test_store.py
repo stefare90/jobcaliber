@@ -1,7 +1,7 @@
 import pytest
 
-from jobcaliber.core.models import EvaluationResult, GateDecision, JobPosting, ScoringResult
-from jobcaliber.infrastructure.persistence import RunStats, Store, config_sha
+from jobcaliber.core.domain import EvaluationResult, GateDecision, JobPosting, ScoringResult
+from jobcaliber.infrastructure.database import RunStats, Store
 
 
 @pytest.fixture()
@@ -119,7 +119,7 @@ def test_config_version_is_content_addressed(store):
     v2, sha2 = store.config_version("b: 2")
     assert v2 != v1 and sha2 != sha1
     assert store.config_yaml(v1) == "a: 1"
-    assert sha1 == config_sha("a: 1")
+    assert len(sha1) == 16 and sha1 == store.config_version("a: 1")[1]
 
 
 def test_new_notifiable_only_uses_the_latest_evaluation(store):

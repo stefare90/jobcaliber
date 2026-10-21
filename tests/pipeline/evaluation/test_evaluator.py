@@ -7,7 +7,7 @@ from jobcaliber.core.config import (
     GateMinScore,
     Question,
 )
-from jobcaliber.core.models import GateDecision, ScoringResult
+from jobcaliber.core.domain import GateDecision, ScoringResult
 from jobcaliber.pipeline.evaluation import Evaluator
 
 SCALE = ["No correlation", "Not verifiable", "Partial", "Full"]

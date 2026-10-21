@@ -2,6 +2,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+from jobcaliber.infrastructure.config_loader import load_config
 from jobcaliber.core.config import (
     AIConfig,
     AIEngine,
@@ -10,8 +11,6 @@ from jobcaliber.core.config import (
     GateAccept,
     Question,
     Search,
-    SearchLocation,
-    load_config,
 )
 
 FULL_YAML = """

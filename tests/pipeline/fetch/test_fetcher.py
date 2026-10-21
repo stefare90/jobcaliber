@@ -8,7 +8,7 @@ from jobcaliber.pipeline.fetch import (
     row_usable,
     to_job_posting,
 )
-from jobcaliber.core.models import Query
+from jobcaliber.pipeline.fetch.models import Query
 
 
 def make_scraping(**over):

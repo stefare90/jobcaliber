@@ -8,7 +8,7 @@ from typing import Any, ClassVar
 from jobcaliber.infrastructure.ai.client.base import AIError
 from jobcaliber.infrastructure.ai.prompts import PromptStore
 from jobcaliber.core.config import Criterion
-from jobcaliber.core.models import JobPosting, ScoringResult
+from jobcaliber.core.domain import JobPosting, ScoringResult
 
 
 class Scorer(ABC):

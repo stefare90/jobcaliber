@@ -8,9 +8,9 @@ from pathlib import Path
 
 from jobcaliber.application.runner import run_once
 from jobcaliber.bootstrap import build_context
-from jobcaliber.core.config import load_config
-from jobcaliber.infrastructure.persistence import SCHEMA_VERSION, migrate, schema_version
-from jobcaliber.infrastructure.persistence.store import SCHEMA_PATH, schema_objects, table_count
+from jobcaliber.infrastructure.config_loader import load_config
+from jobcaliber.infrastructure.database import SCHEMA_VERSION, migrate, schema_version
+from jobcaliber.infrastructure.database import SCHEMA_PATH, schema_objects, table_count
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -29,6 +29,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         f"fetched {outcome.fetched} · new {outcome.new} · scored {outcome.scored} · "
         + " · ".join(f"{k} {v}" for k, v in sorted(outcome.decisions.items()))
     )
+    if outcome.failed:
+        print(f"FAILED: {outcome.error}", file=sys.stderr)
+        return 1
     return 0
 
 

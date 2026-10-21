@@ -5,8 +5,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from jobcaliber.infrastructure.persistence.migrations import MIGRATIONS, SCHEMA_VERSION
-from jobcaliber.infrastructure.persistence.store import SCHEMA_PATH, ensure_schema, table_count
+from jobcaliber.infrastructure.database.migrations import MIGRATIONS, SCHEMA_VERSION
+from jobcaliber.infrastructure.database.schema import SCHEMA_PATH, ensure_schema, table_count
 
 
 @dataclass
@@ -84,6 +84,9 @@ def migrate(path: Path, to: int | None = None, dry_run: bool = False,
             result.backup = backup(conn, path)
             out(f"backup {result.backup}")
 
+        # Foreign keys stay off for the whole migration: a table rebuild drops the old table,
+        # which would violate every reference to it. They are restored and verified at the end.
+        conn.execute("PRAGMA foreign_keys=OFF")
         for module in steps:
             conn.execute("BEGIN")
             try:
@@ -96,6 +99,10 @@ def migrate(path: Path, to: int | None = None, dry_run: bool = False,
             result.to_version = module.VERSION
             out(f"applied {module.__name__} -> v{module.VERSION}")
 
+        conn.execute("PRAGMA foreign_keys=ON")
+        violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise RuntimeError(f"foreign key violations after migration: {violations}")
         if schema_version(conn) != target:
             raise RuntimeError(f"stopped at v{schema_version(conn)}, expected v{target}")
         return result

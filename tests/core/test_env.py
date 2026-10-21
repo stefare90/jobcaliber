@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from jobcaliber.core.config import load_config
-from jobcaliber.core.env import ENV_FILENAME, EnvFileError, load_env, parse_env
+from jobcaliber.infrastructure.config_loader import load_config
+from jobcaliber.infrastructure.env import ENV_FILENAME, EnvFileError, load_env, parse_env
 
 ROOT = Path(__file__).resolve().parents[2]
 

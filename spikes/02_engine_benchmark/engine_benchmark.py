@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from jobcaliber.infrastructure.ai import AIClients
 from jobcaliber.core.config import AppConfig, AIEngine, load_config
-from jobcaliber.core.models import GateDecision, JobPosting
+from jobcaliber.core.domain import GateDecision, JobPosting
 from jobcaliber.pipeline.scoring import Evaluator
 
 HERE = Path(__file__).resolve().parent

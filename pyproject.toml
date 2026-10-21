@@ -18,6 +18,7 @@ dev = [
 
 [project.scripts]
 jobcaliber = "jobcaliber.entrypoints.cli:main"
+jobcaliber-worker = "jobcaliber.entrypoints.worker:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -51,3 +51,21 @@ def test_infrastructure_does_not_import_application_or_entrypoints():
         and ("jobcaliber.application" in line or "jobcaliber.entrypoints" in line or "jobcaliber.pipeline" in line)
     ]
     assert offenders == [], f"infrastructure must not depend upwards: {offenders}"
+
+
+def test_core_reads_no_files():
+    """Loading config and .env is I/O: it belongs to infrastructure, not to the models."""
+    forbidden = ("import yaml", "from yaml", "open(", "read_text(")
+    offenders = [
+        f"{path.relative_to(SRC)}: {line.strip()}"
+        for path in files("core")
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if any(token in line for token in forbidden)
+    ]
+    assert offenders == [], f"core must not touch the filesystem: {offenders}"
+
+
+def test_entrypoints_are_one_module_each():
+    """Three processes, three entry points: cli, worker, web (web added with the web app)."""
+    names = {path.name for path in (SRC / "entrypoints").iterdir() if path.is_dir() or path.suffix == ".py"}
+    assert {"cli.py", "worker.py"} <= names

@@ -7,7 +7,8 @@ import time
 from jobspy import scrape_jobs
 
 from jobcaliber.core.config import Scraping, Search
-from jobcaliber.core.models import FetchStats, JobPosting, Query
+from jobcaliber.core.domain import JobPosting
+from jobcaliber.pipeline.fetch.models import FetchStats, Query
 from jobcaliber.pipeline.fetch.parsing import (
     clean_value,
     is_captcha_text,
