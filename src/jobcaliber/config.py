@@ -18,7 +18,6 @@ KIND_APIS = {"decision": {"systemone"}, "llm": {"openai"}}
 # Allowed engine kinds per role (a role may have several implementations).
 ROLE_KINDS: dict[str, set[str]] = {
     "scorer": {"decision", "llm"},
-    "explainer": {"llm"},
     "query_expander": {"llm"},
 }
 
@@ -292,7 +291,6 @@ class Schedule(BaseModel):
 class AppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: int = 11
     db_path: str = "./data/jobs.db"
     search: Search
     criteria: dict[str, Criterion]

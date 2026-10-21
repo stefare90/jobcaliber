@@ -13,10 +13,9 @@ _FRONT_MATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", re.DOTALL)
 
 # Each prompt kind fixes its file extension and the shape of its content.
 KIND_EXTENSIONS = {
-    "explainer": ".md",
     "query_expander": ".md",
 }
-LLM_KINDS = {"explainer", "query_expander"}
+LLM_KINDS = {"query_expander"}
 DEFAULT_NAME = "default"
 
 

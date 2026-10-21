@@ -79,10 +79,6 @@ class AIClients:
             raise AIError(f"role '{role}' is not configured under ai.roles")
         return name
 
-    def explainer(self):
-        from jobcaliber.delivery.explainer import Explainer
-        return Explainer(self.llm("explainer"), self.prompts)
-
     def query_expander(self):
         from jobcaliber.ingestion.query_expander import QueryExpander
         return QueryExpander(self.llm("query_expander"), self.prompts)

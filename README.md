@@ -71,7 +71,7 @@ and no criterion name is hardcoded in Python.
 ## AI engines
 
 `ai.engines` declares any number of engines; `ai.roles` maps pipeline roles
-(`scorer`, `explainer`, `query_expander`) to one of them.
+(`scorer`, `query_expander`) to one of them.
 
 | Engine | kind | api | Notes |
 |---|---|---|---|
@@ -105,7 +105,7 @@ jobcaliber/
 ├── config.example.yaml     # generic template (copy to config.yaml, never commit it)
 ├── .env.example            # secret template (copy to .env, never commit it)
 ├── .pi/extensions/         # pi project extensions (git-guard: commit/push approval)
-├── prompts/                # explainer, query_expander (rubrics are projected from criteria)
+├── prompts/                # query_expander (scoring rubrics are projected from criteria)
 ├── src/jobcaliber/         # package, split by pipeline stage:
 │   ├── config.py           #   typed config (search, criteria, gates) + validators
 │   ├── env.py              #   minimal .env parser, real environment wins
@@ -113,7 +113,7 @@ jobcaliber/
 │   ├── ai/                 #   client/ (AIClient base + systemone, openai), prompts, registry
 │   ├── ingestion/          #   fetch, query_expander (+ W1: dedup, gates)
 │   ├── scoring/            #   scorer/ (system_one, llm), projection/, evaluator
-│   ├── delivery/           #   explainer (+ W1: notify, storage)
+│   ├── delivery/           #   W1: notify
 │   └── app/                #   W1: CLI, scheduler, web
 ├── spikes/                 # experiments, one folder per question
 │   ├── README.md           #   index + input/output convention
@@ -206,7 +206,7 @@ Pydantic models in `src/jobcaliber/config.py`:
   `board_max_results` (per-board ceiling, e.g. `{linkedin: 300, indeed: 500}`), `job_type`.
 - `schedule` — `scrape_times`, `backup_time`.
 - `ai` — `engines` (`kind`, `api`, `base_url`, `model`, optional `api_key_env`, `headers`,
-  `options`, `throttle_s`, `retry`), `roles` (`scorer`, `explainer`, `query_expander`),
+  `options`, `throttle_s`, `retry`), `roles` (`scorer`, `query_expander`),
   `custom_prompts` (prose prompts only).
 
 **Adding a criterion is data, not code**: add a key under `criteria` with its question.

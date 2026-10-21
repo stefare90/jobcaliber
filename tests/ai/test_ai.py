@@ -16,9 +16,9 @@ def test_render_replaces_placeholders():
 
 
 def test_prompt_store_loads_llm_front_matter():
-    system, user = PromptStore(PROMPTS_DIR).load_llm("explainer")
-    assert system.startswith("You are a concise")
-    assert "{{title}}" in user
+    system, user = PromptStore(PROMPTS_DIR).load_llm("query_expander")
+    assert isinstance(system, str) and system
+    assert "{{titles}}" in user
 
 
 def test_prompt_store_llm_rejects_text_kind():
@@ -30,9 +30,9 @@ def test_prompt_store_llm_rejects_text_kind():
 
 
 def test_prompt_store_missing_file_raises():
-    store = PromptStore(PROMPTS_DIR, custom={"explainer": "does_not_exist"})
+    store = PromptStore(PROMPTS_DIR, custom={"query_expander": "does_not_exist"})
     try:
-        store.load_text("explainer")
+        store.load_text("query_expander")
         assert False, "expected PromptError"
     except PromptError:
         pass
@@ -91,11 +91,11 @@ def test_ai_clients_resolve_roles_and_names(tmp_path):
             "sc": AIEngine(kind="decision", api="systemone", base_url="x", model="m"),
             "ll": AIEngine(kind="llm", api="openai", base_url="x", model="m"),
         },
-        roles={"scorer": "sc", "explainer": "ll"},
+        roles={"scorer": "sc", "query_expander": "ll"},
     )
     clients = AIClients.from_config(ai_config, ROOT)
     assert isinstance(clients.system_one("scorer"), SystemOneClient)
-    assert isinstance(clients.llm("explainer"), LLMClient)
+    assert isinstance(clients.llm("query_expander"), LLMClient)
     assert isinstance(clients.by_name("sc"), SystemOneClient)
 
 

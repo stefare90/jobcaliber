@@ -98,8 +98,8 @@ plus the cross-cutting `ai/` and the `app/` wiring):
   OpenAI are all `llm`/`openai`. Products differ only by config (`base_url`, `model`, key).
 - Engines are declared in `ai.engines` with `kind` (`decision` | `llm`) and `api`
   (`systemone` | `openai`); `ai.roles` maps pipeline roles (`scorer`,
-  `explainer`, `query_expander`) to an engine name. A role accepts the kinds it can
-  implement (`scorer`: decision or llm; `explainer`/`query_expander`: llm).
+  `query_expander`) to an engine name. A role accepts the kinds it can
+  implement (`scorer`: decision or llm; `query_expander`: llm).
   `AIClients` (`src/jobcaliber/ai/`) builds the transports once at startup and exposes
   the role services (`scorer(criteria)`, `explainer()`, `query_expander()`); services
   receive a resolved client, not a config.

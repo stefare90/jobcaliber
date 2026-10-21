@@ -15,7 +15,6 @@ from jobcaliber.config import (
 )
 
 FULL_YAML = """
-version: 11
 db_path: "./data/jobs.db"
 search:
   titles: ["Software Engineer"]
@@ -48,14 +47,13 @@ ai:
   engines:
     rizzo: {kind: "decision", api: "systemone", base_url: "http://127.0.0.1:8017", model: "rizzo-latest"}
     local_llm: {kind: "llm", api: "openai", base_url: "http://localhost:11434/v1", model: "qwen3:8b"}
-  roles: {scorer: "rizzo", explainer: "local_llm"}
-  custom_prompts: {explainer: "concise_it"}
+  roles: {scorer: "rizzo", query_expander: "local_llm"}
+  custom_prompts: {query_expander: "concise_it"}
 """
 
 
 def test_app_config_parses_full_yaml():
     cfg = AppConfig.model_validate(yaml.safe_load(FULL_YAML))
-    assert cfg.version == 11
     assert cfg.search.titles == ["Software Engineer"]
     assert cfg.search.on_site_locations == ["Sardinia, Italy"]
     assert cfg.search.remote_locations == ["Italy"]
@@ -73,7 +71,6 @@ def test_app_config_defaults():
         "criteria": {"core": {"min_threshold": 0.5, "question": {
             "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
     })
-    assert cfg.version == 11
     assert cfg.penalties == {}
     assert cfg.ai.engines == {}
     assert cfg.scraping.max_results("linkedin") == 300
@@ -131,10 +128,10 @@ def test_engine_resolves_api_key_from_env(monkeypatch):
 
 
 def test_roles_validate_engine_kind():
-    with pytest.raises(ValidationError, match="role 'explainer' accepts"):
+    with pytest.raises(ValidationError, match="role 'query_expander' accepts"):
         AIConfig(
             engines={"sc": AIEngine(kind="decision", api="systemone", base_url="x", model="m")},
-            roles={"explainer": "sc"},
+            roles={"query_expander": "sc"},
         )
     with pytest.raises(ValidationError, match="references unknown engine"):
         AIConfig(engines={}, roles={"scorer": "ghost"})

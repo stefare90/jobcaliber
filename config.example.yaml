@@ -1,6 +1,5 @@
 # jobcaliber config template — v11 (search inputs + generic criteria).
 # Copy to config.yaml (gitignored) and edit. Every criterion carries its own question.
-version: 11
 db_path: "./data/jobs.db"
 
 # 1. Search inputs (the only bound part: they drive the boards).
@@ -184,8 +183,7 @@ ai:
         x-opencode-session: "jobcaliber"
   roles:
     scorer: "rizzo"
-    explainer: "local_llm"
     query_expander: "local_llm"
-  # Override a prose prompt: prompts/explainer/<name>.md, prompts/query_expander/<name>.md.
+  # Override a prose prompt: prompts/query_expander/<name>.md.
   # Scoring rubrics are projected from `criteria` above, not read from files.
   custom_prompts: {}
