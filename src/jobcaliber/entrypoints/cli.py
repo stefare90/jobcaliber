@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 from pathlib import Path
 
 from jobcaliber.application.runner import run_once
 from jobcaliber.bootstrap import build_context
+from jobcaliber.core.config import load_config
+from jobcaliber.infrastructure.persistence import SCHEMA_VERSION, migrate, schema_version
+from jobcaliber.infrastructure.persistence.store import SCHEMA_PATH, schema_objects, table_count
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -58,6 +62,68 @@ def cmd_jobs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _db_path(args: argparse.Namespace) -> Path:
+    """Resolve the database path without opening it: `db` commands must work on a stale file."""
+    root = Path(args.root).resolve()
+    _, config = load_config(root)
+    path = Path(config.db_path)
+    return path if path.is_absolute() else root / path
+
+
+def cmd_db(args: argparse.Namespace) -> int:
+    path = _db_path(args)
+    if args.db_command == "version":
+        with _connect(path) as conn:
+            current = schema_version(conn)
+            empty = table_count(conn) == 0
+        if empty:
+            print(f"{path}: new database (will be created at v{SCHEMA_VERSION} on first use)")
+            return 0
+        print(f"{path}: schema v{current} (code expects v{SCHEMA_VERSION})")
+        return 0 if current == SCHEMA_VERSION else 1
+    if args.db_command == "migrate":
+        result = migrate(path, to=args.to, dry_run=args.dry_run, make_backup=not args.no_backup)
+        print(f"v{result.from_version} -> v{result.to_version}")
+        return 0
+    if args.db_command == "check":
+        with _connect(path) as conn:
+            if table_count(conn) == 0:
+                print(f"{path}: new database (will be created at v{SCHEMA_VERSION} on first use)")
+                return 0
+            actual = schema_objects(conn)
+        reference_conn = sqlite3.connect(":memory:")
+        reference_conn.row_factory = sqlite3.Row
+        reference_conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        expected = schema_objects(reference_conn)
+        reference_conn.close()
+        missing = sorted(set(expected) - set(actual))
+        extra = sorted(set(actual) - set(expected))
+        changed = sorted(name for name in set(expected) & set(actual) if expected[name] != actual[name])
+        if not (missing or extra or changed):
+            print(f"{path}: schema matches schema.sql")
+            return 0
+        for name in missing:
+            print(f"missing: {name}")
+        for name in extra:
+            print(f"extra:   {name}")
+        for name in changed:
+            print(f"differs: {name}")
+        return 1
+    if args.db_command == "backup":
+        target = Path(args.to) if args.to else path.with_name(f"{path.name}.bak")
+        with _connect(path) as conn, sqlite3.connect(target) as destination:
+            conn.backup(destination)
+        print(f"backup -> {target}")
+        return 0
+    raise SystemExit(f"unknown db command {args.db_command!r}")
+
+
+def _connect(path: Path):
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="jobcaliber", description="job offer ranker")
     parser.add_argument("--root", default=str(DEFAULT_ROOT), help="project root (default: repo root)")
@@ -73,6 +139,18 @@ def main(argv: list[str] | None = None) -> int:
 
     status = sub.add_parser("status", help="last run and pending notifications")
     status.set_defaults(func=cmd_status)
+
+    db = sub.add_parser("db", help="inspect and migrate the database")
+    db_sub = db.add_subparsers(dest="db_command", required=True)
+    db_sub.add_parser("version", help="current schema version")
+    db_migrate = db_sub.add_parser("migrate", help="apply pending migrations")
+    db_migrate.add_argument("--to", type=int, default=None, help="stop at this version")
+    db_migrate.add_argument("--dry-run", action="store_true", help="list the steps, change nothing")
+    db_migrate.add_argument("--no-backup", action="store_true", help="skip the backup")
+    db_sub.add_parser("check", help="compare the database with schema.sql")
+    db_backup = db_sub.add_parser("backup", help="copy the database")
+    db_backup.add_argument("--to", default=None, help="destination file")
+    db.set_defaults(func=cmd_db)
 
     jobs = sub.add_parser("jobs", help="list stored postings")
     jobs.add_argument("--decision", choices=["pass", "review", "drop"])
