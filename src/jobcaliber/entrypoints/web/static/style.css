@@ -1,11 +1,20 @@
 :root {
+        color-scheme: light dark;
         --fg: #1c1c1e;
         --muted: #6b7280;
         --line: #e5e7eb;
         --bg: #fafafa;
+        --surface: #ffffff;
+        --thead: #f6f7f8;
+        --chip-bg: #f3f4f6;
+        --link: #1d4ed8;
+        --on-color: #ffffff;
         --pass: #0f7b3f;
         --review: #9a6700;
         --drop: #6b7280;
+        --error: #b42318;
+        --info: #1d4ed8;
+        --shadow: rgba(0, 0, 0, 0.10);
 }
 
 * {
@@ -24,7 +33,7 @@ header {
         align-items: center;
         gap: 1rem;
         padding: .6rem 1rem;
-        background: #fff;
+        background: var(--surface);
         border-bottom: 1px solid var(--line);
 }
 
@@ -66,7 +75,7 @@ footer {
 }
 
 .filters {
-        background: #fff;
+        background: var(--surface);
         border: 1px solid var(--line);
         border-radius: 8px;
 }
@@ -106,7 +115,7 @@ footer {
 .chip {
         font-size: 11px;
         color: var(--muted);
-        background: #f3f4f6;
+        background: var(--chip-bg);
         border-radius: 999px;
         padding: .1rem .5rem;
 }
@@ -206,7 +215,7 @@ footer {
         padding: .35rem .9rem;
         border: 1px solid var(--fg);
         background: var(--fg);
-        color: #fff;
+        color: var(--on-color);
         border-radius: 5px;
         cursor: pointer;
 }
@@ -218,7 +227,7 @@ footer {
 table {
         width: 100%;
         border-collapse: collapse;
-        background: #fff;
+        background: var(--surface);
         border: 1px solid var(--line);
 }
 
@@ -235,7 +244,7 @@ th {
         text-transform: uppercase;
         letter-spacing: .02em;
         color: var(--muted);
-        background: #f6f7f8;
+        background: var(--thead);
 }
 
 th a {
@@ -270,7 +279,7 @@ tr.review td.score {
         font-size: 11px;
         font-weight: 600;
         letter-spacing: .03em;
-        color: #fff;
+        color: var(--on-color);
         background: var(--drop);
 }
 
@@ -287,7 +296,7 @@ tr.review td.score {
 }
 
 .badge.failed {
-        background: #b42318;
+        background: var(--error);
 }
 
 .badge.requested {
@@ -295,7 +304,7 @@ tr.review td.score {
 }
 
 .badge.running {
-        background: #1d4ed8;
+        background: var(--info);
 }
 
 .count,
@@ -351,7 +360,7 @@ h1 {
 .feedback button {
         padding: .35rem .8rem;
         border: 1px solid var(--line);
-        background: #fff;
+        background: var(--surface);
         border-radius: 5px;
         cursor: pointer;
 }
@@ -363,7 +372,7 @@ h1 {
 
 .description {
         white-space: pre-wrap;
-        background: #fff;
+        background: var(--surface);
         border: 1px solid var(--line);
         border-radius: 6px;
         padding: .8rem;
@@ -381,7 +390,7 @@ h1 {
 }
 
 .description {
-        background: #fff;
+        background: var(--surface);
         border: 1px solid var(--line);
         border-radius: 6px;
         padding: .8rem 1rem;
@@ -413,12 +422,32 @@ h1 {
 }
 
 .description code {
-        background: #f3f4f6;
+        background: var(--chip-bg);
         padding: 0 .25rem;
         border-radius: 3px;
         font-size: 12px;
 }
 
 .description a {
-        color: #1d4ed8;
+        color: var(--link);
+}
+
+@media (prefers-color-scheme: dark) {
+        :root {
+                --bg: #14161a;
+                --surface: #1b1e24;
+                --thead: #22262d;
+                --chip-bg: #272c34;
+                --fg: #e6e8eb;
+                --muted: #98a1ac;
+                --line: #2f3540;
+                --link: #7aa2f7;
+                --on-color: #ffffff;
+                --pass: #2f9e5f;
+                --review: #c08a2a;
+                --drop: #6b7280;
+                --error: #d0423a;
+                --info: #4a7fe0;
+                --shadow: rgba(0, 0, 0, 0.45);
+        }
 }

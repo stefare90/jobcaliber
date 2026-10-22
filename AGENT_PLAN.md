@@ -461,3 +461,9 @@ committing `config.yaml`.
   201: 20 `<strong>`, 3 `<ul>`, zero raw `<script>`; a test feeds a `<script>` description and
   requires it escaped. Paragraph margins are `.2rem` (the user's tweak) so the 17 short
   paragraphs of a typical posting do not look like a column of gaps. Tests 196/196 green.
+- [x] Dark mode (2026-10-22) — the stylesheet now has a full variable palette (`--surface`,
+  `--thead`, `--chip-bg`, `--link`, `--error`, `--info`, `--shadow`, ...) with no hardcoded
+  colours left, so a `@media (prefers-color-scheme: dark)` block redefines the palette and the
+  whole UI follows the system setting. `color-scheme: light dark` makes native controls (selects,
+  checkboxes, scrollbars) follow too. No toggle and no JavaScript: light stays the default when
+  the system asks for light. Checked: 76 balanced rule blocks, every `var()` defined, page 200.
