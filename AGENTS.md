@@ -4,6 +4,13 @@ Binding for every contributor (human or agent).
 
 ## 0. Two-phase workflow & versioning approval
 
+**Non-negotiable: nothing is implemented before the user agrees.** Every change — a feature, a
+refactor, a one-line fix, a config tweak, a dependency — is proposed in chat first (scope, files,
+approach, acceptance criteria, how it will be tested) and implemented **only** after an explicit
+"ok". Writing code, editing files or running mutating commands before that agreement is a rule
+violation, even when the change looks trivial or obviously right. If something new comes up while
+implementing, stop and return to the proposal instead of deciding alone.
+
 Every development step runs in two mandatory phases, in this order:
 
 1. **Planning (with the user).** Before writing or changing code, the agent
