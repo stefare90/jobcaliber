@@ -98,12 +98,14 @@
       </div>
 
       <div class="stack">
-      <fieldset class="card">
+      <fieldset class="card columns">
         <legend>Columns</legend>
-        {% for column in filters.selectable_columns %}
-          <label class="inline"><input type="checkbox" name="cols" value="{{ column }}"
-            {% if column in visible %}checked{% endif %}> {{ column }}</label>
-        {% endfor %}
+        <div class="cols-grid">
+          {% for column in filters.selectable_columns %}
+            <label class="inline"><input type="checkbox" name="cols" value="{{ column }}"
+              {% if column in visible %}checked{% endif %}> {{ column }}</label>
+          {% endfor %}
+        </div>
       </fieldset>
       </div>
     </div>

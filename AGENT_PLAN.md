@@ -446,3 +446,5 @@ committing `config.yaml`.
   column before any run has produced answers for it. The Value field adapts to the selected
   criterion: a `<select>` of its own options for `choice`, a number input for `score`, always
   visible. Tests 195/195 green.
+- [x] Compact columns picker (2026-10-21) — the Columns card lays its checkboxes out in a
+  4-column grid (2 columns below 1200px), so eleven toggles take three rows instead of eleven.
