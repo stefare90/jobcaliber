@@ -11,15 +11,38 @@ from jobcaliber.bootstrap import AppContext
 
 class Worker:
     def __init__(self, ctx: AppContext, *, poll_s: float = 30, sleep_fn=time.sleep, now=None,
-                 runner=run_once):
+                 runner=run_once, rebuild=None):
         self.ctx = ctx
         self.poll_s = poll_s
         self.sleep_fn = sleep_fn
         self.now = now or datetime.now
         self.runner = runner
+        self.rebuild = rebuild or self._rebuild
+        self._config_mtime = self._mtime()
+
+    def _mtime(self) -> float | None:
+        try:
+            return self.ctx.config_path.stat().st_mtime
+        except OSError:
+            return None
+
+    def _rebuild(self, ctx: AppContext) -> AppContext:
+        from jobcaliber.bootstrap import build_context
+
+        return build_context(ctx.root, store=ctx.store)
+
+    def refresh(self, *, progress=print) -> AppContext:
+        """Cheap per-tick check: a stat() every poll, a full reload only when the file changed."""
+        mtime = self._mtime()
+        if mtime is not None and mtime != self._config_mtime:
+            self.ctx = self.rebuild(self.ctx)
+            self._config_mtime = mtime
+            progress("config reloaded")
+        return self.ctx
 
     def tick(self, *, progress=print) -> RunOutcome | None:
         """One iteration: recover stale runs, execute a request, or run the schedule."""
+        self.refresh(progress=progress)
         store = self.ctx.store
         store.fail_stale_runs()
         config_v, _ = store.config_version(self.ctx.raw_yaml)

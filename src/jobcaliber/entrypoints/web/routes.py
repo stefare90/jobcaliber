@@ -82,14 +82,11 @@ def parse_filters(request: Request, ctx: AppContext) -> dict:
         op = None
     exclude_missing = params.get("exclude_missing") in ("1", "true", "on")
 
-    known_columns = ctx.store.criterion_columns()
+    # Criteria are read from the config: a criterion added today is filterable immediately,
+    # even before a run has produced answers for it.
+    known_columns = list(ctx.config.criteria)
     selectable = [*known_columns, *OPTIONAL_COLUMNS]
-    # Default visible columns come from the config (`criterion.in_table`), never from a name
-    # hardcoded in the web layer.
-    default_columns = [
-        column for column in known_columns
-        if ctx.config.criteria.get(column) is None or ctx.config.criteria[column].in_table
-    ]
+    default_columns = [column for column in known_columns if ctx.config.criteria[column].in_table]
     chosen = [c for raw in params.getlist("cols") for c in raw.split(",") if c in selectable]
     if params.getlist("cols"):
         visible = set(chosen)
@@ -97,7 +94,7 @@ def parse_filters(request: Request, ctx: AppContext) -> dict:
         visible = set(default_columns)
 
     sort = params.get("sort") or "score_total"
-    if not (sort in SORTS or (sort.startswith("crit:") and sort[5:] in ctx.store.criterion_columns())):
+    if not (sort in SORTS or (sort.startswith("crit:") and sort[5:] in ctx.config.criteria)):
         sort = "score_total"
     direction = "asc" if params.get("dir") == "asc" else "desc"
     run = params.get("run") or "all"
@@ -176,12 +173,11 @@ def create_app(ctx: AppContext | None = None) -> FastAPI:
             columns=filters["criterion_columns"], sort=filters["sort"], direction=filters["dir"],
             limit=filters["limit"], offset=filters["offset"],
         )
-        choice_values = sorted({
-            value for spec in ctx.config.criteria.values() if spec.question.type == "choice"
-            for value in spec.question.options
-        })
+        criterion_options = []
+        if filters["criterion"] and filters["criterion_type"] == "choice":
+            criterion_options = list(ctx.config.criteria[filters["criterion"]].question.options)
         return render(request, "jobs.html.j2", table=table, filters=filters, jobs_url=jobs_url,
-                      operators=OPERATORS, decisions=DECISIONS, choice_values=choice_values,
+                      operators=OPERATORS, decisions=DECISIONS, criterion_options=criterion_options,
                       runs=ctx.store.runs(15), sources=ctx.config.scraping.boards,
                       columns=table.columns, visible=filters["columns"])
 

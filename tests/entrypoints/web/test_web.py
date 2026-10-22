@@ -348,3 +348,26 @@ def test_the_filter_panel_is_closed_by_default(client, ctx):
     assert '<details class="filters">' in page.text
     assert '<details class="filters" open>' not in page.text
     assert "Filters" in page.text
+
+
+def test_every_configured_criterion_is_filterable(client, ctx):
+    """Criteria come from the config, so a new one is filterable before it has any answer."""
+    criterion = "brand_new"
+    ctx.config.criteria[criterion] = ctx.config.criteria["core_skills"].model_copy()
+    page = client.get("/jobs")
+    assert f'name="criterion"' in page.text
+    assert f'<option value="{criterion}"' in page.text
+    assert f'name="cols" value="{criterion}"' in page.text
+
+
+def test_value_field_shows_the_options_of_the_selected_criterion(client, ctx):
+    seed(ctx)
+    choice = client.get("/jobs?criterion=location&value=accepted")
+    assert '<select name="value"' in choice.text
+    options = re.findall(r'<option value="(\w+)"[^>]*>\1</option>', choice.text)
+    assert "accepted" in options and "yes" not in options      # only this criterion's options
+    score = client.get("/jobs?criterion=core_skills&op=ge&value=0.5")
+    assert '<input type="text" name="value"' in score.text
+    assert '<select name="value"' not in score.text
+    empty = client.get("/jobs")
+    assert '<input type="text" name="value"' in empty.text     # always visible

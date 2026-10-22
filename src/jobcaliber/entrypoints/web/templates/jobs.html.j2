@@ -77,11 +77,17 @@
               <option value="{{ key }}" {% if key == filters.op %}selected{% endif %}>{{ symbol }}</option>
             {% endfor %}
           </select>
-          <input type="text" name="value" list="criterion-values" placeholder="0.67 or yes"
-                 value="{% if filters.value is not none %}{{ '%g'|format(filters.value) }}{% else %}{{ filters.option or '' }}{% endif %}">
-          <datalist id="criterion-values">
-            {% for value in choice_values %}<option value="{{ value }}"></option>{% endfor %}
-          </datalist>
+          {% if filters.criterion_type == 'choice' %}
+            <select name="value" title="Value, from the selected criterion's options">
+              <option value="">any</option>
+              {% for option in criterion_options %}
+                <option value="{{ option }}" {% if option == filters.option %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
+          {% else %}
+            <input type="text" name="value" placeholder="0.67"
+                   value="{% if filters.value is not none %}{{ '%g'|format(filters.value) }}{% endif %}">
+          {% endif %}
           <label class="inline" title="Hide offers where the model could not judge this">
             <input type="checkbox" name="exclude_missing" value="1" {% if filters.exclude_missing %}checked{% endif %}>
             remove “cannot tell”

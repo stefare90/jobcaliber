@@ -135,3 +135,36 @@ def test_failure_in_the_worker_leaves_the_run_failed_after_the_last_attempt(tmp_
     with store.connect() as conn:
         rows = [dict(r) for r in conn.execute("SELECT status, attempt FROM runs ORDER BY id")]
     assert rows[-1] == {"status": "failed", "attempt": 3}
+
+
+def test_config_is_reloaded_when_the_file_changes(tmp_path):
+    """A stat() every tick; the file is re-read only when it actually changed."""
+    import os
+    from jobcaliber.bootstrap import build_context
+
+    root = tmp_path
+    (root / "config.yaml").write_text(YAML, encoding="utf-8")
+    ctx = build_context(root)
+    worker = Worker(ctx, now=lambda: datetime.fromisoformat("2026-10-21T22:00:00"))
+
+    assert worker.refresh(progress=lambda *_: None).config.schedule.scrape_times == ["08:00", "13:00"]
+
+    (root / "config.yaml").write_text(YAML.replace('scrape_times: ["08:00", "13:00"]',
+                                                   'scrape_times: ["09:30"]'), encoding="utf-8")
+    os.utime(root / "config.yaml", (0, 0))          # force a different mtime
+    refreshed = worker.refresh(progress=lambda *_: None)
+    assert refreshed.config.schedule.scrape_times == ["09:30"]
+    assert refreshed.store is ctx.store             # the database connection is kept
+
+
+def test_refresh_does_nothing_when_the_config_is_unchanged(tmp_path):
+    from jobcaliber.bootstrap import build_context
+
+    (tmp_path / "config.yaml").write_text(YAML, encoding="utf-8")
+    ctx = build_context(tmp_path)
+    calls = []
+    worker = Worker(ctx, now=lambda: datetime.fromisoformat("2026-10-21T22:00:00"),
+                    rebuild=lambda current: calls.append(current) or current)
+    worker.refresh(progress=lambda *_: None)
+    worker.refresh(progress=lambda *_: None)
+    assert calls == []

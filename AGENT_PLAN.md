@@ -438,3 +438,11 @@ committing `config.yaml`.
 - [x] Filter panel closed by default (2026-10-21) — `<details class="filters">` without `open`,
   so the table is what you see first and the chips in the summary still show the active filters.
   Tests 191/191 green.
+- [x] Worker hot reload + config-driven filters (2026-10-21) — the worker re-reads the config
+  when the file changes: `refresh()` stats `config_path` on every tick and rebuilds the context
+  only when the mtime differs (`stat()` per poll, full parse only on change; the `Store` is
+  reused). The web reads the criteria from `ctx.config.criteria` instead of
+  `store.criterion_columns()`, so a criterion added today is filterable and selectable as a
+  column before any run has produced answers for it. The Value field adapts to the selected
+  criterion: a `<select>` of its own options for `choice`, a number input for `score`, always
+  visible. Tests 195/195 green.
