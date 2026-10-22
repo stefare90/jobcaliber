@@ -448,3 +448,8 @@ committing `config.yaml`.
   visible. Tests 195/195 green.
 - [x] Compact columns picker (2026-10-21) — the Columns card lays its checkboxes out in a
   4-column grid (2 columns below 1200px), so eleven toggles take three rows instead of eleven.
+- [x] Columns picker: three columns (2026-10-21) — the commit `4aa3fe3` message says four columns,
+  but the user set the picker to **three** on purpose (eleven toggles in four rows): the CSS in
+  that commit already carries `repeat(3, ...)`. Recorded here so the ledger matches the code.
+  Note: `style.css` is now expanded/formatted by the editor, which is why the recent commits show
+  large CSS diffs.
