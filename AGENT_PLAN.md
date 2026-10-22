@@ -1,3 +1,6 @@
+> Current snapshot: see `AGENT_STATE.md` (kept short and always up to date). This file is the
+> chronological log.
+
 # AGENT_PLAN.md — agent-only build plan
 
 Not user docs. The user reads `README.md`; the agent works from here.

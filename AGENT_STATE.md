@@ -1,0 +1,123 @@
+# AGENT_STATE.md — current snapshot (read this first)
+
+Dense handoff for a fresh context. History and decisions live in `AGENT_PLAN.md`; binding rules in
+`AGENTS.md`; user-facing docs in `README.md`. This file is the "where we are right now".
+
+Last updated: 2026-10-22 · tests: **201 passing** · branch `main`, pushed.
+
+## What jobcaliber is
+
+A personal, local job-offer ranker. Every morning it queries LinkedIn + Indeed for the configured
+titles/locations, scores each new offer against the user's own criteria with a **local decision
+model** (rizzo-flow on `127.0.0.1:8017`), decides `pass`/`review`/`drop`, stores everything in
+SQLite, and shows it in a local web app where the user marks 👍/👎 (the feedback that will
+calibrate the thresholds). Never re-scores the same offer with the same config, never re-notifies.
+
+## Architecture (layers, enforced by `tests/test_layers.py`)
+
+```
+src/jobcaliber/
+├── core/            domain.py (JobPosting, ScoringResult, EvaluationResult, GateDecision)
+│                    config/ (search.py, criteria.py, ai.py, settings.py, app.py) — no I/O
+├── pipeline/        one folder per step
+│   ├── fetch/       models.py (Query, FetchStats) · queries.py · parsing.py · fetcher.py
+│   ├── scoring/     scorer/ (base.py ABC + system_one.py + llm.py) · projection/ (systemone/llm)
+│   └── evaluation/  evaluator.py (gates → thresholds → decision)
+├── infrastructure/  database/ (store.py, schema.py, schema.sql, migrations/, migrations runner)
+│                    ai/ (client/base.py ABC + system_one/llm + prompts.py) · config_loader.py · env.py
+├── application/     runner.py (run_once) · worker.py (loop, claim, retry, hot reload)
+│                    schedule.py (is_due) · clients.py (AIClients: transports → services)
+├── entrypoints/     cli.py (`jobcaliber`) · worker.py (`jobcaliber-worker`)
+│                    web/ (routes.py, readmodels.py, templates/*.html.j2, static/style.css)
+└── bootstrap.py     build_context() → AppContext(root, config, raw_yaml, store, engine)
+```
+
+Dependency direction: `entrypoints` → `application` → `pipeline`/`infrastructure` → `core`.
+Entry points are the only place allowed to import everything.
+
+## Invariants (do not break without a decision)
+
+1. **A missing answer never drops.** `missing` → neutral 0.5, confidence penalty, forced REVIEW.
+2. **Gates drop only on an explicit negative answer** (`gate: true` → answer must be `yes`;
+   `gate: {accept: […]}`; `gate: {min_score: x}`).
+3. **Re-scoring key** = `UNIQUE(job_id, config_v, engine)`: same config+engine is a no-op, a new
+   config or engine re-scores everything.
+4. **Config is content-addressed**: `config_versions(v, yaml, sha)`; a run reuses the version when
+   the file is unchanged, creates a new one when it changes.
+5. **Schema changes are manual**: `Store` *creates* an empty DB, never alters an existing one;
+   `jobcaliber db migrate` applies migrations (backup + one transaction per step). `db check`
+   diffs the live schema against `schema.sql`.
+6. **The web is read-mostly**: it may write only `feedback` (upsert) and `runs(status='requested')`
+   — enforced by a test on the allowed `Store` methods.
+7. **No criterion name, threshold or heuristic is hardcoded** anywhere (web, evaluator, fetch).
+8. **English only** in the repo (code, docs, UI strings, commit messages). Chat may be Italian.
+9. **Nothing is implemented before the user agrees** (`AGENTS.md` §0, absolute).
+
+## Commands
+
+```bash
+uv sync --frozen && uv run pytest -q          # 201 tests
+uv run jobcaliber run --limit 5 --max-queries 1   # one bounded pass
+uv run jobcaliber run --dry-run                   # nothing written
+uv run jobcaliber status | jobs --decision review
+uv run jobcaliber db version | check | migrate --dry-run | migrate | backup
+uv run jobcaliber-worker --poll 5                 # loop (systemd keeps it alive)
+uv run jobcaliber-worker --once                   # one tick (queue check / post-deploy)
+uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --port 8765
+```
+
+Engines: `rizzo` (local, needs `cd ~/rizzo-flow && uv run rizzo serve --port 8017 --device auto
+--quant q4_k_m`), `jev` (opencode System One, free tier, `OPENCODE_API_KEY` in `.env`),
+`local_llm` (Ollama qwen3:8b), `opencode_llm` (deepseek via `/inference/go/v1` + `x-opencode-session`
+header). Default `roles: {scorer: rizzo}`.
+
+## Current data (dev DB `data/jobs.db`, gitignored)
+
+- 894 jobs, 216 evaluations, 3 runs, `config_v 1`.
+- Decisions: **3 pass, 30 review, 183 drop** (216 evaluated).
+- Criteria: `core_skills`, `tools`, `role_fit` (min .5 / apply .67), `pay` (apply .75),
+  `location` (choice gate accept accepted/rejected/unknown), `applicable` (bool gate, `in_table:
+  false`), `contract_ok` (bool gate).
+- Thresholds: notify 70, review 60, min confidence 0.55. Schedule 08:00/13:00/19:00, retries 3.
+- Search: 4 titles × `Sardinia, Italy` (on-site) + `Italy` (remote).
+
+## Web (implemented, verified in a browser)
+
+- `/jobs` — table with **dynamic criterion columns** (default = criteria with `in_table: true`),
+  collapsed filter panel with **cards** on 3 columns (Run, Text incl. "Ad location", Board,
+  Decision, Criterion, Columns picker at 3 columns), chips summarising active filters, sortable
+  headers incl. `sort=crit:<name>`, pagination.
+- `/jobs/<id>` — decision badge, score/confidence, `dropped by`, answers vs thresholds, link to the
+  ad, **markdown description** (markdown-it-py, `html=False` → raw HTML escaped), 👍/👎 feedback.
+- `/runs` — queue + history, auto-refresh while a request is pending; `POST /run` enqueues.
+- Light/dark via `prefers-color-scheme` (variable palette, `color-scheme: light dark`).
+- The detail link carries the list query string, so "back" restores page, filters and columns.
+
+## Traps learned (do not re-discover)
+
+- **YAML 1.1**: bare `yes`/`no` are booleans — quote option keys and label verdicts.
+- **HTML hrefs in tests are escaped** (`&amp;`): `html.unescape` before following them.
+- The System One wire **rejects extra fields** (`missing_level`/`missing_choice` stay in config).
+- SQLite cannot alter a `CHECK`: table rebuild = create new → copy → drop old → rename, with
+  `PRAGMA foreign_keys=OFF` around it (renaming the old table rewrites other tables' FKs).
+- Ollama qwen3 emits `reasoning` and never returns JSON unless `reasoning_effort: "none"`.
+- `localhost:8000` is taken by VS Code on this machine; use 8765.
+- `firewalld` is **active** here; port must be opened for LAN access. Machine IP `192.168.1.28`
+  (wlan0), hostname `stefare-PC`, Avahi active.
+- A full first run on an empty DB is ~1.5-2h (fetch ~25 min + ~900 postings × 5 s).
+
+## Next steps (agreed, not started)
+
+1. `deploy/jobcaliber-web.service`: `--host 0.0.0.0`; README section "Access from your phone"
+   (mDNS `stefare-PC.local`, alias `jobcaliber.local` via `/etc/avahi/hosts`, Android caveat,
+   Tailscale option, no-auth warning).
+2. Install the systemd units (`loginctl enable-linger stefare`).
+3. Telegram notifier with a link to the page.
+4. Calibration on real feedback (`spikes/03_calibration/calibrate.py`), then drop `review` from the
+   learning-mode default.
+
+## Open questions for the user
+
+- Telegram: digest only, or instant alerts above threshold too?
+- Calibration: how many verdicts before tuning thresholds (suggest ≥30)?
+- Dark mode: keep automatic, or add a manual toggle (needs a preference + JS)?
