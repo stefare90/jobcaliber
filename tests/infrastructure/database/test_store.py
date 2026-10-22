@@ -157,7 +157,7 @@ def test_jobs_filter_and_sort(store):
 
     assert [row.id for row in store.jobs(sort="score_total")] == [a, b]
     assert [row.id for row in store.jobs(sort="score_total", direction="asc")] == [b, a]
-    assert [row.id for row in store.jobs(decision="drop")] == [b]
+    assert [row.id for row in store.jobs(decisions=["drop"])] == [b]
     assert [row.id for row in store.jobs(source="indeed")] == [b]
     assert [row.id for row in store.jobs(text="python")] == [a]
     with pytest.raises(ValueError, match="cannot sort by"):

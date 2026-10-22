@@ -36,6 +36,7 @@ class Criterion(BaseModel):
     apply_threshold: float | None = None
     gate: bool | GateAccept | GateMinScore | None = None
     question: Question
+    in_table: bool = True
 
 
 BOOLEAN_OPTIONS = {"yes", "no", "missing"}

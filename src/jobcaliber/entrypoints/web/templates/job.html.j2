@@ -1,0 +1,60 @@
+{% extends "base.html.j2" %}
+{% block title %}{{ detail.job.title }} · jobcaliber{% endblock %}
+{% block content %}
+{% set job = detail.job %}{% set evaluation = detail.evaluation %}
+<p><a href="{{ jobs_url(filters) }}">‹ Jobs</a></p>
+
+<h1>{{ job.title }}</h1>
+<p class="company">{{ job.company }}</p>
+
+{% if evaluation %}
+<p>
+  <span class="badge {{ evaluation.decision }}">{{ evaluation.decision|upper }}</span>
+  score {{ '%.1f'|format(evaluation.score_total or 0) }} ·
+  confidence {{ '%.2f'|format(evaluation.confidence or 0) }} ·
+  {% if evaluation.dropped_by %}dropped by <code>{{ evaluation.dropped_by }}</code>{% else %}no drop{% endif %}
+</p>
+{% else %}
+<p class="empty">This offer has not been scored yet.</p>
+{% endif %}
+
+<dl class="meta">
+  <dt>Declared location</dt><dd>{{ job.location_raw or '—' }}</dd>
+  <dt>Salary</dt><dd>{% if job.salary_min or job.salary_max %}{{ job.salary_min or '?' }}–{{ job.salary_max or '?' }}{% else %}—{% endif %}</dd>
+  <dt>Board</dt><dd>{{ job.source }}</dd>
+  <dt>Query</dt><dd>{{ job.query_term or '—' }} @ {{ job.query_location or '—' }}{% if job.query_remote %} (remote){% endif %}</dd>
+  <dt>Seen</dt><dd>{{ job.first_seen_at }} → {{ job.last_seen_at }}</dd>
+  <dt>Original ad</dt><dd>{% if job.external_id.startswith('http') %}<a href="{{ job.external_id }}" target="_blank" rel="noopener">open ↗</a>{% else %}—{% endif %}</dd>
+</dl>
+
+{% if evaluation %}
+<table class="answers">
+  <thead><tr><th>criterion</th><th>answer</th><th>min threshold</th><th>apply threshold</th><th>gate</th></tr></thead>
+  <tbody>
+  {% for key, criterion in ctx.config.criteria.items() %}
+    <tr>
+      <td>{{ key }}</td>
+      <td>
+        {% if key in detail.missing %}<em>cannot tell</em>
+        {% elif detail.answers.get(key) is number %}{{ '%.2f'|format(detail.answers[key]) }}
+        {% else %}{{ detail.answers.get(key, '—') }}{% endif %}
+      </td>
+      <td>{{ criterion.min_threshold if criterion.min_threshold is not none else '—' }}</td>
+      <td>{{ criterion.apply_threshold if criterion.apply_threshold is not none else '—' }}</td>
+      <td>{% if criterion.gate is not none and criterion.gate is not false %}{{ criterion.gate }}{% else %}—{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<form method="post" action="/jobs/{{ job.id }}/feedback" class="feedback">
+  <span>Would you apply to this one?</span>
+  <button type="submit" name="verdict" value="good" class="{{ 'chosen' if detail.feedback == 'good' else '' }}">👍 Yes</button>
+  <button type="submit" name="verdict" value="bad" class="{{ 'chosen' if detail.feedback == 'bad' else '' }}">👎 No</button>
+  {% if detail.feedback %}<small>saved: {{ detail.feedback }}</small>{% endif %}
+</form>
+{% endif %}
+
+<h2>Description</h2>
+<pre class="description">{{ job.description or '(no description)' }}</pre>
+{% endblock %}

@@ -1,0 +1,350 @@
+import re
+import sqlite3
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from jobcaliber.core.domain import EvaluationResult, GateDecision, JobPosting, ScoringResult
+from jobcaliber.entrypoints.web import create_app
+from jobcaliber.infrastructure.config_loader import load_config
+from jobcaliber.infrastructure.database import Store
+from jobcaliber.bootstrap import AppContext
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.fixture()
+def ctx(tmp_path):
+    path, config = load_config(ROOT)
+    store = Store(tmp_path / "jobs.db")
+    return AppContext(root=ROOT, config_path=path, config=config,
+                      raw_yaml=path.read_text(encoding="utf-8"), store=store, engine="rizzo")
+
+
+@pytest.fixture()
+def client(ctx):
+    return TestClient(create_app(ctx))
+
+
+def add_job(store, config_v, external_id, title, company, decision, score, answers, missing=(), run_id=None):
+    posting = JobPosting(external_id=external_id, url=external_id, title=title, company=company,
+                         source="linkedin", location_raw="Cagliari", description="desc")
+    job_id, _ = store.upsert_posting(posting)
+    result = ScoringResult(answers=answers, missing=set(missing), confidence=0.9)
+    evaluation = EvaluationResult(decision=decision, score_total=score, confidence=0.9,
+                                  sub_scores={}, dropped_by=None)
+    evaluation_id = store.save_evaluation(job_id, run_id, config_v, "rizzo", result, evaluation)
+    return job_id, evaluation_id
+
+
+def seed(ctx) -> tuple[int, int]:
+    """Three offers: one pass, one drop, one review with a missing answer. Returns job/evaluation ids."""
+    store = ctx.store
+    config_v, _ = store.config_version(ctx.raw_yaml)
+    job_id, evaluation_id = add_job(store, config_v, "https://x/1", "Senior Python Developer", "Acme",
+                                    GateDecision.PASS, 82.0, {"core_skills": 0.67, "location": "accepted"})
+    add_job(store, config_v, "https://x/2", "Java Developer", "Beta",
+            GateDecision.DROP, 12.0, {"core_skills": 0.0, "location": "rejected"})
+    add_job(store, config_v, "https://x/3", "Embedded Engineer", "Gamma",
+            GateDecision.REVIEW, 58.0, {"core_skills": 0.5}, missing={"core_skills"})
+    return job_id, evaluation_id
+
+
+def test_healthz(client):
+    response = client.get("/healthz")
+    assert response.status_code == 200 and response.json()["status"] == "ok"
+
+
+def test_root_redirects_to_the_learning_mode_list(client):
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/jobs?")
+    assert "decisions=pass%2Creview" in response.headers["location"]
+
+
+def test_jobs_without_a_decisions_parameter_shows_every_decision(client, ctx):
+    seed(ctx)
+    response = client.get("/jobs")
+    assert response.status_code == 200
+    assert "Senior Python Developer" in response.text
+    assert "Embedded Engineer" in response.text
+    assert "Java Developer" in response.text               # no parameter = no filter
+    assert "core_skills" in response.text                  # dynamic column
+
+
+def test_the_learning_default_comes_from_the_root_redirect(client, ctx):
+    seed(ctx)
+    location = client.get("/", follow_redirects=False).headers["location"]
+    response = client.get(location)
+    assert "decisions=pass%2Creview" in location
+    assert "Java Developer" not in response.text
+
+
+def test_jobs_shows_drops_when_asked(client, ctx):
+    seed(ctx)
+    response = client.get("/jobs?decisions=pass,review,drop")
+    assert "Java Developer" in response.text
+
+
+def test_jobs_filters_by_text_source_and_criterion(client, ctx):
+    seed(ctx)
+    assert "Senior Python Developer" in client.get("/jobs?decisions=pass,review,drop&q=python").text
+    assert "Beta" not in client.get("/jobs?decisions=pass,review,drop&q=python").text
+    filtered = client.get("/jobs?decisions=pass,review,drop&criterion=core_skills&op=le&value=0.5")
+    assert "Java Developer" in filtered.text and "Senior Python Developer" not in filtered.text
+    only_missing = client.get("/jobs?decisions=pass,review&criterion=core_skills&missing=1")
+    assert "Embedded Engineer" in only_missing.text
+
+
+def test_jobs_rejects_unknown_sort_without_crashing(client, ctx):
+    seed(ctx)
+    response = client.get("/jobs?sort=score_total;DROP+TABLE+jobs")
+    assert response.status_code == 200
+    with ctx.store.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 3
+
+
+def test_job_detail_shows_answers_and_link(client, ctx):
+    job_id, _ = seed(ctx)
+    response = client.get(f"/jobs/{job_id}")
+    assert response.status_code == 200
+    assert "Senior Python Developer" in response.text
+    assert "core_skills" in response.text
+    assert "open ↗" in response.text
+
+
+def test_missing_job_is_404(client):
+    assert client.get("/jobs/999").status_code == 404
+
+
+def test_feedback_is_saved_and_updatable(client, ctx):
+    job_id, evaluation_id = seed(ctx)
+    assert client.post(f"/jobs/{job_id}/feedback", data={"verdict": "good"},
+                       follow_redirects=False).status_code == 303
+    assert ctx.store.feedback(evaluation_id) == "good"
+    client.post(f"/jobs/{job_id}/feedback", data={"verdict": "bad"})
+    assert ctx.store.feedback(evaluation_id) == "bad"
+
+
+def test_feedback_rejects_an_unknown_verdict(client, ctx):
+    job_id, _ = seed(ctx)
+    assert client.post(f"/jobs/{job_id}/feedback", data={"verdict": "meh"}).status_code == 400
+
+
+def test_run_request_goes_through_the_queue(client, ctx):
+    response = client.post("/run", follow_redirects=False)
+    assert response.status_code == 303 and response.headers["location"] == "/runs"
+    assert ctx.store.pending_requests() == 1
+    with ctx.store.connect() as conn:
+        row = conn.execute("SELECT trigger, status FROM runs").fetchone()
+    assert (row["trigger"], row["status"]) == ("manual", "requested")
+
+
+def test_runs_page_lists_the_queue(client, ctx):
+    client.post("/run")
+    response = client.get("/runs")
+    assert response.status_code == 200 and "requested" in response.text
+
+
+ALLOWED_STORE_METHODS = {
+    "jobs", "count_jobs", "job", "latest_evaluation", "answers_for", "missing_for",
+    "feedback_for", "criterion_columns", "runs", "last_run", "last_completed_run",
+    "pending_requests",
+    "save_feedback", "request_run",
+}
+
+
+def test_the_web_only_writes_feedback_and_run_requests():
+    """The web may add verdicts and queue a run. Everything else it only reads."""
+    import re
+
+    web = Path(__file__).resolve().parents[3] / "src" / "jobcaliber" / "entrypoints" / "web"
+    called = set()
+    for path in web.rglob("*.py"):
+        called |= set(re.findall(r"store\.(\w+)\(", path.read_text(encoding="utf-8")))
+    assert called <= ALLOWED_STORE_METHODS, f"unexpected Store calls from the web: {called - ALLOWED_STORE_METHODS}"
+    assert {"save_feedback", "request_run"} <= called      # the only two writes
+
+
+def test_choice_criterion_filters_by_option(client, ctx):
+    seed(ctx)
+    response = client.get("/jobs?decisions=pass,review,drop&criterion=location&value=accepted")
+    assert "Senior Python Developer" in response.text
+    assert "Java Developer" not in response.text
+
+
+def test_the_default_scope_is_all_offers(client, ctx):
+    seed(ctx)
+    response = client.get("/jobs?decisions=pass,review")
+    assert "2 offers" in response.text         # pass + review, from every run
+    assert "every run" in response.text        # the run filter lists runs by date
+
+
+def test_last_scope_uses_the_last_completed_run_and_falls_back(client, ctx):
+    seed(ctx)
+    ctx.store.request_run("manual")             # a pending request must not blank the list
+    response = client.get("/jobs?run=last&decisions=pass,review")
+    assert response.status_code == 200
+    assert "2 offers" in response.text         # no completed run: fall back to everything
+
+
+def test_pagination_keeps_the_filters(client, ctx):
+    store = ctx.store
+    config_v, _ = store.config_version(ctx.raw_yaml)
+    for index in range(12):
+        add_job(store, config_v, f"https://x/p{index}", f"Python dev {index}", "Acme",
+                GateDecision.PASS, 50.0 + index, {"core_skills": 0.67})
+    page1 = client.get("/jobs?decisions=pass&limit=10&offset=0")
+    assert "next ›" in page1.text
+    assert "decisions=pass" in page1.text and "limit=10" in page1.text
+    page2 = client.get("/jobs?decisions=pass&limit=10&offset=10")
+    assert page2.status_code == 200
+    titles1 = {line for line in page1.text.splitlines() if "Python dev" in line}
+    titles2 = {line for line in page2.text.splitlines() if "Python dev" in line}
+    assert titles1 and titles2 and not (titles1 & titles2)
+
+
+def test_an_offset_past_the_last_page_clamps_instead_of_showing_nothing(client, ctx):
+    seed(ctx)
+    response = client.get("/jobs?run=all&decisions=pass,review,drop&limit=10&offset=500")
+    assert response.status_code == 200
+    assert "2 offers" in response.text or "3 offers" in response.text
+    assert "No results" not in response.text
+
+
+def test_pager_links_keep_every_filter(client, ctx):
+    store = ctx.store
+    config_v, _ = store.config_version(ctx.raw_yaml)
+    for index in range(15):
+        add_job(store, config_v, f"https://x/loc{index}", f"Rejected role {index}", "Acme",
+                GateDecision.REVIEW, 40.0 + index, {"location": "rejected"})
+    page = client.get("/jobs?run=all&criterion=location&value=rejected&limit=10&offset=0")
+    assert "next ›" in page.text
+    href = page.text.split('class="pager"')[1].split('href="')[1].split('"')[0]
+    for fragment in ("criterion=location", "value=rejected", "limit=10", "offset=10", "run=all"):
+        assert fragment in href, f"{fragment} missing from {href}"
+
+
+def test_every_decision_is_an_explicit_state(client, ctx):
+    """Regression: "all decisions" used to be an absent parameter, which the form rendered as
+    nothing checked. It is now explicit, so the checkboxes always match what is listed."""
+    store = ctx.store
+    config_v, _ = store.config_version(ctx.raw_yaml)
+    for index in range(15):
+        add_job(store, config_v, f"https://x/pg{index}", f"Role {index}", "Acme",
+                GateDecision.DROP, 10.0 + index, {"core_skills": 0.0})
+    page = client.get("/jobs?limit=10")
+    assert page.text.split('<p class="count">')[1].split(' ')[0] == "15"
+    href = page.text.split('class="pager"')[1].split('href="')[1].split('"')[0]
+    assert "decisions=pass%2Creview%2Cdrop" in href      # explicit, so it cannot drift
+    page2 = client.get("/jobs?limit=10&offset=10")
+    assert page2.text.split('<p class="count">')[1].split(' ')[0] == "15"
+
+
+def test_decisions_accept_both_form_style_and_comma_style(client, ctx):
+    seed(ctx)
+    form_style = client.get("/jobs?decisions=pass&decisions=review&decisions=drop")
+    comma_style = client.get("/jobs?decisions=pass,review,drop")
+    assert "3 offers" in form_style.text and "3 offers" in comma_style.text
+    checked = re.findall(r'value="(pass|review|drop)"\s*\n?\s*checked', form_style.text)
+    assert sorted(checked) == ["drop", "pass", "review"]
+    only_review = client.get("/jobs?decisions=review")
+    assert "1 offers" in only_review.text
+
+
+def test_reset_returns_to_the_initial_state(client, ctx):
+    """Reset must land on the same state as the first visit: pass+review, every run."""
+    seed(ctx)
+    page = client.get("/jobs?decisions=pass,review,drop&criterion=location&value=rejected&q=zzz")
+    assert 'href="/">Reset</a>' in page.text
+    reset = client.get("/", follow_redirects=True)
+    assert "2 offers" in reset.text                       # pass + review only
+    assert "every run" in reset.text
+
+
+def test_run_filter_lists_runs_and_filters_by_id(client, ctx):
+    seed(ctx)
+    run_id = ctx.store.start_run(1, "rizzo", "manual")
+    page = client.get(f"/jobs?run={run_id}")
+    assert page.status_code == 200
+    assert f'value="{run_id}"' in page.text               # the run appears in the select
+    assert "0 offers" in page.text                        # no evaluation belongs to it yet
+
+
+def test_exclude_missing_hides_unjudgeable_offers(client, ctx):
+    seed(ctx)
+    everything = client.get("/jobs?decisions=pass,review,drop")
+    without_missing = client.get("/jobs?decisions=pass,review,drop&exclude_missing=1")
+    assert "3 offers" in everything.text
+    assert "2 offers" in without_missing.text             # the "cannot tell" one is hidden
+    assert "Embedded Engineer" not in without_missing.text
+
+
+def test_run_column_is_sortable_when_visible(client, ctx):
+    seed(ctx)
+    hidden = client.get("/jobs?sort=run_started_at&dir=desc")
+    assert hidden.status_code == 200 and "Run</a>" not in hidden.text   # off by default
+    shown = client.get("/jobs?cols=core_skills,run&sort=run_started_at&dir=desc")
+    assert "Run</a>" in shown.text
+
+
+def test_templates_escape_scraped_content(client, ctx):
+    """Titles come from boards: a `<script>` in one must never reach the browser as markup."""
+    store = ctx.store
+    config_v, _ = store.config_version(ctx.raw_yaml)
+    add_job(store, config_v, "https://x/xss", '<script>alert("x")</script>', "Evil & Co",
+            GateDecision.PASS, 90.0, {"core_skills": 0.67})
+    page = client.get("/jobs?decisions=pass")
+    assert "<script>" not in page.text
+    assert "&lt;script&gt;" in page.text
+    assert "Evil &amp; Co" in page.text
+
+
+def test_columns_can_be_selected_from_the_form(client, ctx):
+    seed(ctx)
+    page = client.get("/jobs?cols=core_skills")
+    assert 'name="cols" value="core_skills"' in page.text
+    assert "cols=core_skills" in page.text
+    assert ">core_skills</a></th>" in page.text
+    assert ">location</a></th>" not in page.text          # the other criterion columns are hidden
+    everything = client.get("/jobs?cols=core_skills,location")
+    assert ">location</a></th>" in everything.text
+
+
+def test_salary_is_not_a_table_column_but_stays_on_the_detail(client, ctx):
+    seed(ctx)
+    page = client.get("/jobs")
+    assert "<th>Salary</th>" not in page.text
+    job_id = page.text.split('/jobs/')[1].split('"')[0]
+    assert "Salary" in client.get(f"/jobs/{job_id}").text
+
+
+def test_scored_criteria_are_the_default_columns(client, ctx):
+    job_id, _ = seed(ctx)
+    config_v, _ = ctx.store.config_version(ctx.raw_yaml)
+    add_job(ctx.store, config_v, "https://x/gate", "Gated role", "Acme", GateDecision.PASS, 75.0,
+            {"core_skills": 0.67, "applicable": "no"})     # a gate answer, so the column exists
+    page = client.get("/jobs")
+    text = page.text
+    assert ">core_skills</a></th>" in text          # scored
+    assert ">applicable</a></th>" not in text       # gate: detail only
+    enabled = client.get("/jobs?cols=core_skills,applicable")
+    assert ">applicable</a></th>" in enabled.text
+
+
+def test_description_blank_lines_are_collapsed(client, ctx):
+    from jobcaliber.entrypoints.web.readmodels import normalize_description
+
+    assert normalize_description("a\n\n\n\nb\n\n\nc") == "a\n\nb\n\nc"
+    assert normalize_description("  a\r\n\r\n\r\n  b  ") == "a\n\n  b"
+    assert normalize_description(None) == ""
+    assert normalize_description("a\n\nb") == "a\n\nb"      # exactly two lines stay untouched
+
+
+def test_the_filter_panel_is_closed_by_default(client, ctx):
+    seed(ctx)
+    page = client.get("/jobs")
+    assert '<details class="filters">' in page.text
+    assert '<details class="filters" open>' not in page.text
+    assert "Filters" in page.text

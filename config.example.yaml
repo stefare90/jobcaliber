@@ -1,4 +1,4 @@
-# jobcaliber config template — v11 (search inputs + generic criteria).
+# jobcaliber config template — search inputs + generic criteria.
 # Copy to config.yaml (gitignored) and edit. Every criterion carries its own question.
 db_path: "./data/jobs.db"
 
@@ -12,7 +12,7 @@ search:
   exclude: []
 
 
-# 2. Criteria: weighted dimensions (weight > 0) or hard gates (gate), each with a question.
+# 2. Criteria: scored dimensions (min/apply thresholds) or hard gates, each with a question.
 #    Add your own: a new key + its question is all it takes.
 criteria:
   core_skills:
@@ -94,6 +94,7 @@ criteria:
       missing: "unknown"
 
   applicable:
+    in_table: false
     gate: { accept: ["no"] }
     question:
       type: "choice"

@@ -23,6 +23,7 @@ class RunStats:
 @dataclass
 class JobRow:
     id: int
+    evaluation_id: int
     external_id: str
     title: str
     company: str
@@ -34,6 +35,7 @@ class JobRow:
     first_seen_at: str | None = None
     last_seen_at: str | None = None
     notified_at: str | None = None
+    run_started_at: str | None = None
     decision: str | None = None
     score_total: float | None = None
     confidence: float | None = None
@@ -144,6 +146,14 @@ class Store:
     def run(self, run_id: int) -> dict | None:
         with self.connect() as conn:
             row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+            return dict(row) if row else None
+
+    def last_completed_run(self) -> dict | None:
+        """The last run that actually produced evaluations (not a request, not a failure)."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM runs WHERE status = 'ok' AND scored > 0 ORDER BY id DESC LIMIT 1"
+            ).fetchone()
             return dict(row) if row else None
 
     def last_scheduled_run(self) -> dict | None:
@@ -291,10 +301,12 @@ class Store:
     def new_notifiable(self, limit: int | None = None) -> list[JobRow]:
         """Latest evaluation is pass/review and the posting was never notified."""
         query = (
-            "SELECT j.*, e.id AS evaluation_id, e.decision, e.score_total, e.confidence, e.dropped_by "
+            "SELECT j.*, e.id AS evaluation_id, e.decision, e.score_total, e.confidence, "
+            "e.dropped_by, r.started_at AS run_started_at "
             "FROM jobs j JOIN evaluations e ON e.id = ("
             "  SELECT MAX(id) FROM evaluations e2 WHERE e2.job_id = j.id"
-            ") WHERE j.notified_at IS NULL AND e.decision IN ('pass','review') "
+            ") LEFT JOIN runs r ON r.id = e.run_id "
+            "WHERE j.notified_at IS NULL AND e.decision IN ('pass','review') "
             "ORDER BY e.score_total DESC"
         )
         if limit:
@@ -314,45 +326,195 @@ class Store:
 
     # --- listing --------------------------------------------------------
 
-    def jobs(self, decision: str | None = None, source: str | None = None,
-             text: str | None = None, run_id: int | None = None,
+    def jobs(self, *, decisions: list[str] | None = None, source: str | None = None,
+             text: str | None = None, location: str | None = None,
+             criterion: str | None = None, op: str | None = None,
+             value: float | None = None, option: str | None = None,
+             exclude_missing: bool = False, run_id: int | None = None,
              sort: str = "score_total", direction: str = "desc",
-             limit: int | None = 200) -> list[JobRow]:
-        allowed_sort = {"score_total", "confidence", "title", "company", "posted_at",
-                        "first_seen_at", "decision", "source"}
-        if sort not in allowed_sort:
-            raise ValueError(f"cannot sort by {sort!r}; allowed: {sorted(allowed_sort)}")
-        order = "DESC" if direction.lower() == "desc" else "ASC"
-        conditions = ["e.id = (SELECT MAX(id) FROM evaluations e2 WHERE e2.job_id = j.id)"]
+             limit: int = 50, offset: int = 0) -> list[JobRow]:
+        """Rows for the web table: the latest evaluation per job, filtered and ordered."""
+        where, params = self._where(decisions, source, text, location, criterion, op, value,
+                                    option, exclude_missing, run_id)
+        order, join, join_params = self._order(sort, direction)
+        limit = max(1, min(int(limit), 500))
+        query = (
+            "SELECT j.*, e.id AS evaluation_id, e.decision, e.score_total, e.confidence, "
+            "e.dropped_by, r.started_at AS run_started_at "
+            "FROM jobs j JOIN evaluations e ON e.id = "
+            "(SELECT MAX(id) FROM evaluations e2 WHERE e2.job_id = j.id) "
+            "LEFT JOIN runs r ON r.id = e.run_id "
+            f"{join} {where} ORDER BY {order} LIMIT ? OFFSET ?"
+        )
+        with self.connect() as conn:
+            rows = conn.execute(
+                query, (*join_params, *params, limit, max(0, int(offset)))
+            ).fetchall()
+        return [self._to_job_row(row) for row in rows]
+
+    def count_jobs(self, *, decisions: list[str] | None = None, source: str | None = None,
+                   text: str | None = None, location: str | None = None,
+             criterion: str | None = None, op: str | None = None,
+                   value: float | None = None, option: str | None = None,
+                   exclude_missing: bool = False, run_id: int | None = None) -> int:
+        where, params = self._where(decisions, source, text, location, criterion, op, value,
+                                    option, exclude_missing, run_id)
+        with self.connect() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM jobs j JOIN evaluations e ON e.id = "
+                "(SELECT MAX(id) FROM evaluations e2 WHERE e2.job_id = j.id) "
+                f"{where}",
+                params,
+            ).fetchone()[0]
+
+    @staticmethod
+    def _where(decisions, source, text, location, criterion, op, value, option, exclude_missing,
+               run_id):
+        conditions: list[str] = []
         params: list[object] = []
-        if decision:
-            conditions.append("e.decision = ?")
-            params.append(decision)
+        if decisions:
+            conditions.append(f"e.decision IN ({','.join('?' * len(decisions))})")
+            params.extend(decisions)
         if source:
             conditions.append("j.source = ?")
             params.append(source)
         if text:
             conditions.append("(j.title LIKE ? OR j.company LIKE ?)")
-            params += [f"%{text}%", f"%{text}%"]
+            params.extend([f"%{text}%", f"%{text}%"])
+        if location:
+            conditions.append("j.location_raw LIKE ?")
+            params.append(f"%{location}%")
         if run_id is not None:
             conditions.append("e.run_id = ?")
             params.append(run_id)
-        query = (
-            "SELECT j.*, e.id AS evaluation_id, e.decision, e.score_total, e.confidence, e.dropped_by "
-            "FROM jobs j JOIN evaluations e ON e.job_id = j.id "
-            f"WHERE {' AND '.join(conditions)} ORDER BY e.{sort} {order}"
-        )
-        if limit:
-            query += f" LIMIT {int(limit)}"
+        if exclude_missing:
+            conditions.append(
+                "NOT EXISTS (SELECT 1 FROM evaluation_answers a "
+                "WHERE a.evaluation_id = e.id AND a.missing = 1"
+                + (" AND a.criterion = ?" if criterion else "") + ")"
+            )
+            if criterion:
+                params.append(criterion)
+        if criterion:
+            answer = "EXISTS (SELECT 1 FROM evaluation_answers a WHERE a.evaluation_id = e.id AND a.criterion = ?"
+            params.append(criterion)
+            if option is not None:
+                answer += " AND a.option = ?"
+                params.append(option)
+            elif op and isinstance(value, float):
+                operator = {"lt": "<", "le": "<=", "gt": ">", "ge": ">=", "eq": "="}.get(op)
+                if operator is None:
+                    raise ValueError(f"unknown comparison operator {op!r}")
+                answer += f" AND a.value {operator} ?"
+                params.append(value)
+            conditions.append(answer + ")")
+        return ("WHERE " + " AND ".join(conditions)) if conditions else "", params
+
+    @staticmethod
+    def _order(sort: str, direction: str) -> tuple[str, str, tuple]:
+        """Order clause plus an optional join: criteria are sorted through their answer row."""
+        allowed = {
+            "score_total": "e.score_total", "confidence": "e.confidence", "decision": "e.decision",
+            "run_started_at": "r.started_at",
+            "title": "j.title", "company": "j.company", "source": "j.source",
+            "first_seen_at": "j.first_seen_at", "last_seen_at": "j.last_seen_at",
+        }
+        way = "DESC" if direction.lower() == "desc" else "ASC"
+        if sort in allowed:
+            return f"{allowed[sort]} {way}, j.id DESC", "", ()
+        if sort.startswith("crit:"):
+            criterion = sort[len("crit:"):]
+            if not criterion.isidentifier():
+                raise ValueError(f"cannot sort by criterion {criterion!r}")
+            return (
+                f"sa.value {way} NULLS LAST, sa.option {way}, j.id DESC",
+                "LEFT JOIN evaluation_answers sa ON sa.evaluation_id = e.id AND sa.criterion = ?",
+                (criterion,),
+            )
+        raise ValueError(f"cannot sort by {sort!r}; allowed: {sorted(allowed)} or crit:<name>")
+
+    def job(self, job_id: int) -> dict | None:
         with self.connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-        return [self._to_job_row(row) for row in rows]
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            return dict(row) if row else None
+
+    def answers_for(self, evaluation_ids: list[int]) -> dict[int, dict[str, float | str | None]]:
+        if not evaluation_ids:
+            return {}
+        placeholders = ",".join("?" * len(evaluation_ids))
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT evaluation_id, criterion, value, option, missing FROM evaluation_answers "
+                f"WHERE evaluation_id IN ({placeholders})",
+                evaluation_ids,
+            ).fetchall()
+        answers: dict[int, dict[str, float | str | None]] = {}
+        for row in rows:
+            value = row["option"] if row["option"] is not None else row["value"]
+            answers.setdefault(row["evaluation_id"], {})[row["criterion"]] = value
+        return answers
+
+    def missing_for(self, evaluation_ids: list[int]) -> dict[int, set[str]]:
+        if not evaluation_ids:
+            return {}
+        placeholders = ",".join("?" * len(evaluation_ids))
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT evaluation_id, criterion FROM evaluation_answers "
+                f"WHERE evaluation_id IN ({placeholders}) AND missing = 1",
+                evaluation_ids,
+            ).fetchall()
+        missing: dict[int, set[str]] = {}
+        for row in rows:
+            missing.setdefault(row["evaluation_id"], set()).add(row["criterion"])
+        return missing
+
+    def latest_evaluation(self, job_id: int) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM evaluations WHERE job_id = ? ORDER BY id DESC LIMIT 1", (job_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def feedback_for(self, evaluation_ids: list[int]) -> dict[int, str]:
+        if not evaluation_ids:
+            return {}
+        placeholders = ",".join("?" * len(evaluation_ids))
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"SELECT evaluation_id, verdict FROM feedback WHERE evaluation_id IN ({placeholders})",
+                evaluation_ids,
+            ).fetchall()
+        return {row["evaluation_id"]: row["verdict"] for row in rows}
+
+    def criterion_columns(self) -> list[str]:
+        """The dynamic columns of the web table: one per criterion of the current evaluations."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT a.criterion FROM evaluation_answers a "
+                "JOIN evaluations e ON e.id = a.evaluation_id "
+                "WHERE e.id = (SELECT MAX(id) FROM evaluations e2 WHERE e2.job_id = e.job_id) "
+                "ORDER BY a.criterion"
+            ).fetchall()
+        return [row["criterion"] for row in rows]
+
+    def runs(self, limit: int = 20) -> list[dict]:
+        with self.connect() as conn:
+            rows = conn.execute("SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def pending_requests(self) -> int:
+        with self.connect() as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM runs WHERE status = 'requested'"
+            ).fetchone()[0]
 
     @staticmethod
     def _to_job_row(row: sqlite3.Row) -> JobRow:
         data = dict(row)
         return JobRow(
             id=data["id"],
+            evaluation_id=data["evaluation_id"],
             external_id=data["external_id"],
             title=data["title"],
             company=data["company"],
@@ -364,6 +526,7 @@ class Store:
             first_seen_at=data["first_seen_at"],
             last_seen_at=data["last_seen_at"],
             notified_at=data["notified_at"],
+            run_started_at=data["run_started_at"],
             decision=data["decision"],
             score_total=data["score_total"],
             confidence=data["confidence"],

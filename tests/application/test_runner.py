@@ -147,7 +147,7 @@ def test_dry_run_writes_nothing(store):
 def test_dropped_postings_are_stored_with_the_gate_name(store):
     config = make_config()
     run(config, store, [posting(1)], scorer=FakeScorer({"core_skills": 1.0, "location": "rejected"}))
-    rows = store.jobs(decision="drop")
+    rows = store.jobs(decisions=["drop"])
     assert len(rows) == 1 and rows[0].dropped_by == "location"
 
 

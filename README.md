@@ -38,9 +38,9 @@ the command line; the web app and the worker are next.
 | SQLite storage, idempotent evaluations, schema guard + migrations | ✅ |
 | CLI: `run`, `status`, `jobs`, `db` | ✅ |
 | Worker: schedule + queue (`runs` as the queue) | ✅ `jobcaliber-worker` |
-| Web UI: offer table, detail, Sì/No feedback | ⛔ next |
+| Web UI: offer table, detail, Sì/No feedback, run request | ✅ `jobcaliber-web` |
 | Telegram notification with a link to the web UI | ⛔ after the web app |
-| Calibration on your own verdicts | ⛔ needs the web app |
+| Calibration on your own verdicts | ⛔ needs a few weeks of verdicts |
 
 ## How it works
 
@@ -117,7 +117,7 @@ src/jobcaliber/
 ├── entrypoints/          # one module per process
 │   ├── cli.py            #   jobcaliber        → run | status | jobs | db
 │   ├── worker.py         #   jobcaliber-worker → the worker loop
-│   └── web/              #   next: uvicorn jobcaliber.entrypoints.web:create_app
+│   └── web/              #   uvicorn …web:create_app: table, detail, feedback
 └── bootstrap.py          # composition root
 ```
 
@@ -185,6 +185,9 @@ uv run jobcaliber-worker --once --limit 5 --max-queries 1   # one bounded tick
 uv run jobcaliber status                            # last run + notifiable offers
 uv run jobcaliber jobs --decision review --limit 10
 
+# web app (local, read-mostly: it writes feedback and run requests only)
+uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --port 8765
+
 # database
 uv run jobcaliber db version                        # schema version in use
 uv run jobcaliber db check                          # does the file match schema.sql?
@@ -246,7 +249,7 @@ and your Sì/No becomes the labels that calibrate the thresholds.
 ## Development
 
 ```bash
-uv run pytest -q                      # 159 tests, layering included
+uv run pytest -q                      # 172 tests, layering included
 uv run python spikes/01_fetch_coverage/fetch_coverage.py     # do the queries reach enough offers?
 uv run python spikes/02_engine_benchmark/engine_benchmark.py --engine rizzo --limit 20
 uv run python spikes/03_calibration/calibrate.py rizzo       # measure against labels.yaml

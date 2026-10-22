@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}jobcaliber{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <span class="brand">jobcaliber</span>
+    <nav>
+      <a href="/">Jobs</a>
+      <a href="/runs">Runs</a>
+    </nav>
+    <form method="post" action="/run" class="inline">
+      <button type="submit">Run now</button>
+    </form>
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <footer>local · {{ ctx.config.db_path }} · build {{ build }}</footer>
+</body>
+</html>

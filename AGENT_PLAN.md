@@ -391,3 +391,50 @@ committing `config.yaml`.
   (48 DROP / 13 REVIEW) with 5/5 protected postings dropped.
   - Lesson: with rizzo the answer labels must be factual AND the "interesting" case must be the
     affirmative one; a negative label makes the model pick the default.
+- [x] M4 web read-mostly (2026-10-21) — `entrypoints/web/` (FastAPI + Jinja2, server-rendered):
+  `/jobs` table with dynamic criterion columns, filters (decisions, source, text,
+  criterion+op+value, missing, run scope), whitelisted sorting and pagination; `/jobs/{id}`
+  detail with answers vs thresholds and the Sì/No buttons; `/runs` queue + history with
+  auto-refresh while a request is pending; `POST /run` enqueues a `requested` row; `/healthz`.
+  `Store` gained `count_jobs`, `job`, `latest_evaluation`, `answers_for`, `missing_for`,
+  `feedback_for`, `criterion_columns`, `runs`, `pending_requests` and the new filter arguments.
+  The write surface is enforced by a test: the web may call only an allowlist of Store methods
+  (writes: `save_feedback`, `request_run`). Live check: 33 offers listed, detail/feedback/run
+  200-303, feedback row and queued run verified in the DB. Tests 172/172 green.
+- [x] Pagination bug root cause (2026-10-21) — from the browser: with every decision checked the
+  list showed 216 offers, but "successivi" came back with 33. Cause: the hidden empty
+  `<input name="decisions" value="">` (added to allow unchecking everything) made the form send
+  `decisions=pass&decisions=review&decisions=drop&decisions=`; `QueryParams.get` keeps the last
+  value, so the parse produced an empty list (no filter = all), while the pager link then omitted
+  the parameter — and an absent parameter fell back to the learning default. The round-trip was
+  not symmetric. Fix: no hidden input; **an absent `decisions` parameter means "no filter"**, so
+  an empty selection survives pagination (test added). The learning default now comes only from
+  the `/` redirect, and the header "Jobs" link points there.
+- [x] Filters: repeated keys (2026-10-21) — the form sends one key per checkbox
+  (`decisions=pass&decisions=review&decisions=drop`); `QueryParams.get()` returns only the last
+  one, so the UI kept a single decision ("only drop checked, the others uncheckable"). Now the
+  parser reads `getlist("decisions")` and splits each value on commas, so form style and pager
+  style both work (test covers both). Verified live: 3 checkboxes → 216 offers with all three
+  checked, both from a form submit and from a pager link. Tests 181/181 green.
+- [x] Filter improvements (2026-10-21) — `"cannot tell" only` became **remove "cannot tell"**
+  (`exclude_missing`, with or without a criterion); the value field adapts to the selected
+  criterion (a `<select>` of its options for `choice`, operator + number for `score`), so
+  `location` etc. are filtered without typing; the rigid `last|all` scope is replaced by a
+  **Run** select listing recent runs with date, status and how many offers they added, and a
+  sortable **Run** column shows the evaluation's run time. Store: `run_started_at` on `JobRow`
+  (LEFT JOIN runs), `exclude_missing` in the WHERE builder, `run_started_at` as a sort key.
+  Verified live: default 33, all 216, without "cannot tell" 69, location=rejected 136.
+  Tests 185/185 green.
+- [x] Filter widgets + template naming (2026-10-21) — filters are independent cards on one row
+  (Run, Text, Board, Decision, Criterion) with the value field **always visible** (operator +
+  text, datalist of the known options); a **Location** text filter on the posting's location
+  (LIKE); every criterion column is sortable through `sort=crit:<name>` (LEFT JOIN on
+  `evaluation_answers`, `NULLS LAST`); the `First seen` column was dropped and the `Verdict`
+  column renamed **Feedback**. Templates renamed to `.html.j2` for editor support, with an
+  explicit Jinja `Environment` because extension-based autoescaping would not cover `.j2` —
+  a test now feeds a `<script>` title and requires it escaped.
+  Verified live: 5 cards on one row, location Milan 59 / Cagliari 29, `crit:pay` asc/desc,
+  `exclude_missing` 69. Tests 186/186 green.
+- [x] Filter panel closed by default (2026-10-21) — `<details class="filters">` without `open`,
+  so the table is what you see first and the chips in the summary still show the active filters.
+  Tests 191/191 green.

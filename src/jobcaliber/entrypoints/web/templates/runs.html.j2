@@ -1,0 +1,30 @@
+{% extends "base.html.j2" %}
+{% block title %}Runs · jobcaliber{% endblock %}
+{% block content %}
+<h1>Runs</h1>
+{% if pending %}
+  <p class="pending">{{ pending }} request(s) queued: the worker picks them up on its next tick.</p>
+  <meta http-equiv="refresh" content="10">
+{% endif %}
+<table>
+  <thead><tr><th>#</th><th>started</th><th>trigger</th><th>status</th><th>duration</th><th>fetched</th><th>new</th><th>scored</th><th>error</th></tr></thead>
+  <tbody>
+  {% for run in runs %}
+    <tr>
+      <td>{{ run.id }}</td>
+      <td>{{ run.started_at }}</td>
+      <td>{{ run.trigger }}</td>
+      <td><span class="badge {{ run.status }}">{{ run.status }}</span></td>
+      <td>{% if run.duration_ms is not none %}{{ (run.duration_ms / 1000)|round(1) }}s{% else %}—{% endif %}</td>
+      <td>{{ run.fetched }}</td>
+      <td>{{ run.new }}</td>
+      <td>{{ run.scored }}</td>
+      <td><small>{{ run.error or '' }}</small></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="9" class="empty">No run yet: press “Run now”.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="pager"><a href="/runs">refresh</a></p>
+{% endblock %}
