@@ -1,12 +1,14 @@
 [Unit]
 Description=jobcaliber web (offer list)
+# Listens on every interface so a phone on the same LAN can reach it. There is no
+# authentication: restrict the port in the firewall to your subnet.
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory=%h/Projects/jobcaliber
 EnvironmentFile=-%h/.config/jobcaliber/env
-ExecStart=%h/.local/bin/uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --host 127.0.0.1 --port 8000
+ExecStart=%h/.local/bin/uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 

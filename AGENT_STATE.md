@@ -108,10 +108,10 @@ header). Default `roles: {scorer: rizzo}`.
 
 ## Next steps (agreed, not started)
 
-1. `deploy/jobcaliber-web.service`: `--host 0.0.0.0`; README section "Access from your phone"
+1. ~~LAN access~~ **done**: the unit binds `0.0.0.0`, README has "Access from your phone"
    (mDNS `stefare-PC.local`, alias `jobcaliber.local` via `/etc/avahi/hosts`, Android caveat,
-   Tailscale option, no-auth warning).
-2. Install the systemd units (`loginctl enable-linger stefare`).
+   Tailscale option, no-auth warning). Verified: `--host 0.0.0.0` answers on `192.168.1.28:8870`.
+2. Install the systemd units (`loginctl enable-linger stefare`); port 8000 is free again.
 3. Telegram notifier with a link to the page.
 4. Calibration on real feedback (`spikes/03_calibration/calibrate.py`), then drop `review` from the
    learning-mode default.

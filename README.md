@@ -198,6 +198,62 @@ uv run jobcaliber db backup --to data/jobs.db.bak
 A full run costs one call per new offer (~5 s each with the local model) plus the fetch
 (~20-30 min for all queries, dominated by board pagination). Re-runs only score what is new.
 
+### Access from your phone
+
+By default uvicorn binds `127.0.0.1` (this machine only). To open the page from a phone on the
+same Wi-Fi, three things are needed.
+
+**1. Listen on the LAN.**
+
+```bash
+uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --host 0.0.0.0 --port 8765
+```
+
+`0.0.0.0` means every interface. The systemd unit in `deploy/` already does this.
+
+**2. Open the port in the firewall** (this machine runs `firewalld`). Restrict it to your subnet
+instead of opening it to everyone:
+
+```bash
+sudo firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.1.0/24" \
+  port port="8765" protocol="tcp" accept' --permanent
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-rich-rules
+```
+
+**3. Open it on the phone** with the machine's LAN address:
+
+```bash
+ip route get 1.1.1.1 | awk '{print $7}'    # e.g. 192.168.1.28
+curl http://192.168.1.28:8765/healthz      # verify before reaching for the phone
+```
+
+That gives `http://<lan-ip>:8765`. To use a **name instead of the IP**:
+
+- the machine already answers as `<hostname>.local` (mDNS/Avahi): `http://stefare-PC.local:8765`;
+- a nicer alias comes from one line in `/etc/avahi/hosts`:
+
+  ```bash
+  echo "192.168.1.28 jobcaliber.local" | sudo tee -a /etc/avahi/hosts
+  sudo systemctl restart avahi-daemon
+  ```
+
+  then `http://jobcaliber.local:8765`.
+
+**Caveats.** iOS and macOS resolve `.local` natively; **Android often does not** — there, either set
+a hostname for the machine in the router's DHCP table or use Tailscale MagicDNS, which also gives a
+valid HTTPS certificate without opening any port. `.local` does not work across networks, and guest
+Wi-Fi with client isolation blocks everything.
+
+**The app has no authentication.** Anyone on that network can read the offers, save feedback and
+press *Run now*. Keep the firewall rule narrow, remove it when you are done, or put Tailscale in
+front:
+
+```bash
+sudo firewall-cmd --remove-rich-rule='rule family="ipv4" source address="192.168.1.0/24" \
+  port port="8765" protocol="tcp" accept'
+```
+
 ## Configuration
 
 - `search` — titles, on-site locations, remote locations, and an `exclude` list shown to the

@@ -477,3 +477,10 @@ committing `config.yaml`.
   the "‹ Jobs" back link restore the exact page. Note for tests: hrefs in the rendered HTML are
   HTML-escaped (`&amp;`), so they must be `html.unescape`-d before being followed. Verified live:
   list page 2 -> detail -> back returns to the same columns and offset. Tests 201/201 green.
+- [x] LAN access (2026-10-22) — `deploy/jobcaliber-web.service` binds `--host 0.0.0.0` (with a
+  comment about the missing authentication); README gained "Access from your phone": LAN bind,
+  `firewalld` rich rule restricted to the local subnet, verification over the LAN IP,
+  mDNS `<hostname>.local`, alias `jobcaliber.local` in `/etc/avahi/hosts`, the Android caveat,
+  Tailscale as the authenticated alternative, and the warning that anyone on the network can
+  write feedback and press *Run now*. Verified live: bound on `0.0.0.0:8870`, `/healthz` answers
+  both on localhost and on `192.168.1.28`. Tests 201/201 green.
