@@ -56,5 +56,9 @@
 {% endif %}
 
 <h2>Description</h2>
-<pre class="description">{{ job.description or '(no description)' }}</pre>
+{% if job.description %}
+  <div class="description">{{ job.description_html | safe }}</div>
+{% else %}
+  <p class="empty">(no description)</p>
+{% endif %}
 {% endblock %}

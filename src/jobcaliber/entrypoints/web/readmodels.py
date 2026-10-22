@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from markdown_it import MarkdownIt
+
 from jobcaliber.infrastructure.database import Store
 
 
@@ -53,6 +55,17 @@ def job_table(store: Store, *, decisions=None, source=None, text=None, location=
     )
 
 
+# `html=False` escapes any raw tag in the posting: boards are untrusted input, and rendering
+# markdown must not become a way to inject markup.
+_MARKDOWN = MarkdownIt("commonmark", {"html": False, "linkify": False, "typographer": False})
+
+
+def render_markdown(text: str | None) -> str:
+    if not text:
+        return ""
+    return _MARKDOWN.render(text)
+
+
 def normalize_description(text: str | None) -> str:
     """Board descriptions carry runs of blank, indented lines: keep one empty line between blocks."""
     if not text:
@@ -67,7 +80,8 @@ def job_detail(store: Store, job_id: int) -> dict | None:
     job = store.job(job_id)
     if job is None:
         return None
-    job = {**job, "description": normalize_description(job.get("description"))}
+    description = normalize_description(job.get("description"))
+    job = {**job, "description": description, "description_html": render_markdown(description)}
     evaluation = store.latest_evaluation(job_id)
     if evaluation is None:
         return {"job": job, "evaluation": None, "answers": {}, "missing": set(), "feedback": None}

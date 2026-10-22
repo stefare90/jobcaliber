@@ -379,3 +379,46 @@ h1 {
         font-size: 12px;
         color: var(--muted);
 }
+
+.description {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: .8rem 1rem;
+        max-height: 32rem;
+        overflow: auto;
+}
+
+.description p,
+.description ul,
+.description ol {
+        margin: .2rem 0;
+}
+
+.description h1,
+.description h2,
+.description h3,
+.description h4 {
+        margin: .9rem 0 .4rem;
+        font-size: 1rem;
+}
+
+.description ul,
+.description ol {
+        padding-left: 1.2rem;
+}
+
+.description li {
+        margin: .15rem 0;
+}
+
+.description code {
+        background: #f3f4f6;
+        padding: 0 .25rem;
+        border-radius: 3px;
+        font-size: 12px;
+}
+
+.description a {
+        color: #1d4ed8;
+}

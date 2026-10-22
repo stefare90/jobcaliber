@@ -453,3 +453,11 @@ committing `config.yaml`.
   that commit already carries `repeat(3, ...)`. Recorded here so the ledger matches the code.
   Note: `style.css` is now expanded/formatted by the editor, which is why the recent commits show
   large CSS diffs.
+- [x] Markdown description (2026-10-22) — board descriptions use markdown (`**bold**`, `*`
+  bullets, headings), so the detail page now renders them: `markdown-it-py` with `html=False`,
+  which **escapes** any raw tag in the posting instead of executing it (the escaping moved from
+  Jinja into the renderer, it is not dropped). `<pre>` became a styled
+  `<div class="description">`; the blank-line normalisation still runs first. Verified on job
+  201: 20 `<strong>`, 3 `<ul>`, zero raw `<script>`; a test feeds a `<script>` description and
+  requires it escaped. Paragraph margins are `.2rem` (the user's tweak) so the 17 short
+  paragraphs of a typical posting do not look like a column of gaps. Tests 196/196 green.

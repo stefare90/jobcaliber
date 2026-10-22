@@ -371,3 +371,25 @@ def test_value_field_shows_the_options_of_the_selected_criterion(client, ctx):
     assert '<select name="value"' not in score.text
     empty = client.get("/jobs")
     assert '<input type="text" name="value"' in empty.text     # always visible
+
+
+def test_description_is_rendered_as_markdown_but_raw_html_is_escaped(client, ctx):
+    from jobcaliber.entrypoints.web.readmodels import render_markdown
+
+    html = render_markdown("**Senior** role\n\n* C++\n* Python\n\n<script>alert(1)</script>")
+    assert "<strong>Senior</strong>" in html
+    assert "<ul>" in html and "<li>C++</li>" in html
+    assert "<script>" not in html and "&lt;script&gt;" in html
+
+    store = ctx.store
+    config_v, _ = store.config_version(ctx.raw_yaml)
+    posting = JobPosting(external_id="https://x/md", url="https://x/md", title="MD role",
+                        company="Acme", source="linkedin",
+                        description="**Firmware** engineer\n\n* C++\n* RTOS")
+    job_id, _ = store.upsert_posting(posting)
+    store.save_evaluation(job_id, None, config_v, "rizzo", ScoringResult(answers={"core_skills": 0.67}),
+                          EvaluationResult(decision=GateDecision.PASS, score_total=80, confidence=0.9))
+    page = client.get(f"/jobs/{job_id}")
+    assert "<strong>Firmware</strong>" in page.text
+    assert "<li>RTOS</li>" in page.text
+    assert '<pre class="description">' not in page.text
