@@ -144,7 +144,7 @@
     <tr class="{{ job.decision }}">
       <td class="score">{{ '%.1f'|format(job.score_total or 0) }}</td>
       <td><span class="badge {{ job.decision }}">{{ job.decision|upper }}</span></td>
-      <td><a href="/jobs/{{ job.id }}">{{ job.title }}</a><br><small>{{ job.company }}</small></td>
+      <td><a href="{{ detail_url(filters, job.id) }}">{{ job.title }}</a><br><small>{{ job.company }}</small></td>
       <td>{{ job.source }}</td>
       <td>{{ job.location_raw or '—' }}</td>
       {% for column in columns %}

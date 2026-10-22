@@ -10,7 +10,7 @@
   <header>
     <span class="brand">jobcaliber</span>
     <nav>
-      <a href="/">Jobs</a>
+      <a href="{{ jobs_href | default('/') }}">Jobs</a>
       <a href="/runs">Runs</a>
     </nav>
     <form method="post" action="/run" class="inline">

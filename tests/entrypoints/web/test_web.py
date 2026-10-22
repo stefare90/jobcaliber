@@ -1,3 +1,4 @@
+import html as html_lib
 import re
 import sqlite3
 from pathlib import Path
@@ -393,3 +394,51 @@ def test_description_is_rendered_as_markdown_but_raw_html_is_escaped(client, ctx
     assert "<strong>Firmware</strong>" in page.text
     assert "<li>RTOS</li>" in page.text
     assert '<pre class="description">' not in page.text
+
+
+def test_the_nav_link_keeps_the_active_filters(client, ctx):
+    seed(ctx)
+    page = client.get("/jobs?decisions=pass&criterion=core_skills&op=ge&value=0.5")
+    nav = page.text.split('<nav>')[1].split('</nav>')[0]
+    href = html_lib.unescape(nav.split('href="')[1].split('"')[0])
+    assert "decisions=pass" in href and "criterion=core_skills" in href
+    assert "value=0.5" in href
+
+
+def test_the_nav_link_from_the_detail_page_keeps_the_filters(client, ctx):
+    job_id, _ = seed(ctx)
+    page = client.get(f"/jobs/{job_id}?decisions=pass&q=python")
+    nav = page.text.split('<nav>')[1].split('</nav>')[0]
+    href = html_lib.unescape(nav.split('href="')[1].split('"')[0])
+    assert "decisions=pass" in href and "q=python" in href
+
+
+def test_the_nav_falls_back_to_the_default_list_without_filters(client, ctx):
+    seed(ctx)
+    nav = client.get("/runs").text.split('<nav>')[1].split('</nav>')[0]
+    assert 'href="/"' in nav
+
+
+def test_the_detail_link_carries_the_list_filters(client, ctx):
+    seed(ctx)
+    page = client.get("/jobs?decisions=pass&criterion=core_skills&op=ge&value=0.5&offset=10&limit=10")
+    href = html_lib.unescape(page.text.split('<td><a href="')[1].split('"')[0])
+    assert href.startswith("/jobs/")
+    assert "decisions=pass" in href and "criterion=core_skills" in href
+    assert "offset=10" in href and "limit=10" in href
+
+
+def test_back_from_the_detail_returns_to_the_same_page_and_filters(client, ctx):
+    store = ctx.store
+    config_v, _ = store.config_version(ctx.raw_yaml)
+    for index in range(15):
+        add_job(store, config_v, f"https://x/back{index}", f"Backend role {index}", "Acme",
+                GateDecision.PASS, 60.0 + index, {"core_skills": 0.67})
+    listing = client.get("/jobs?decisions=pass&limit=10&offset=10")
+    assert "11–" in listing.text                       # page 2
+    detail_href = html_lib.unescape(listing.text.split('<td><a href="')[1].split('"')[0])
+    detail = client.get(detail_href)
+    nav_href = html_lib.unescape(detail.text.split("<nav>")[1].split('href="')[1].split('"')[0])
+    assert "offset=10" in nav_href and "decisions=pass" in nav_href
+    back = client.get(nav_href)
+    assert "11–" in back.text                          # still page 2

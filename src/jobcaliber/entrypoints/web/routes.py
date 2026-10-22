@@ -130,6 +130,12 @@ def jobs_url(filters: dict, **overrides) -> str:
     return "/jobs?" + urlencode({key: val for key, val in query.items() if val != ""})
 
 
+def detail_url(filters: dict, job_id: int) -> str:
+    """The detail page carries the current query string, so "back" returns to the same list."""
+    _, _, query = jobs_url(filters).partition("?")
+    return f"/jobs/{job_id}?{query}" if query else f"/jobs/{job_id}"
+
+
 def create_app(ctx: AppContext | None = None) -> FastAPI:
     if ctx is None:  # uvicorn --factory calls create_app() with no arguments
         from jobcaliber.bootstrap import build_context
@@ -177,6 +183,7 @@ def create_app(ctx: AppContext | None = None) -> FastAPI:
         if filters["criterion"] and filters["criterion_type"] == "choice":
             criterion_options = list(ctx.config.criteria[filters["criterion"]].question.options)
         return render(request, "jobs.html.j2", table=table, filters=filters, jobs_url=jobs_url,
+                      jobs_href=jobs_url(filters), detail_url=detail_url,
                       operators=OPERATORS, decisions=DECISIONS, criterion_options=criterion_options,
                       runs=ctx.store.runs(15), sources=ctx.config.scraping.boards,
                       columns=table.columns, visible=filters["columns"])
@@ -186,8 +193,9 @@ def create_app(ctx: AppContext | None = None) -> FastAPI:
         detail = job_detail(ctx.store, job_id)
         if detail is None:
             raise HTTPException(status_code=404, detail="job not found")
-        return render(request, "job.html.j2", detail=detail, filters=parse_filters(request, ctx),
-                      jobs_url=jobs_url)
+        filters = parse_filters(request, ctx)
+        return render(request, "job.html.j2", detail=detail, filters=filters,
+                      jobs_url=jobs_url, jobs_href=jobs_url(filters))
 
     @app.post("/jobs/{job_id}/feedback")
     def submit_feedback(job_id: int, verdict: str = Form(...)) -> RedirectResponse:

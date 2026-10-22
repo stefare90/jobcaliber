@@ -467,3 +467,10 @@ committing `config.yaml`.
   whole UI follows the system setting. `color-scheme: light dark` makes native controls (selects,
   checkboxes, scrollbars) follow too. No toggle and no JavaScript: light stays the default when
   the system asks for light. Checked: 76 balanced rule blocks, every `var()` defined, page 200.
+- [x] Detail link keeps the list state (2026-10-22) — the title link pointed at `/jobs/<id>` with no
+  query string, so the detail page could not know which list you came from: "back" always landed
+  on page 1 with default filters and default columns. `detail_url(filters, job_id)` appends the
+  current query string (filters, columns, sort, limit **and** offset), so the header "Jobs" and
+  the "‹ Jobs" back link restore the exact page. Note for tests: hrefs in the rendered HTML are
+  HTML-escaped (`&amp;`), so they must be `html.unescape`-d before being followed. Verified live:
+  list page 2 -> detail -> back returns to the same columns and offset. Tests 201/201 green.
