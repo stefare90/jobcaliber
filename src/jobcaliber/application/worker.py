@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from jobcaliber.application.runner import RunOutcome, run_once
 from jobcaliber.application.schedule import is_due
@@ -15,7 +15,7 @@ class Worker:
         self.ctx = ctx
         self.poll_s = poll_s
         self.sleep_fn = sleep_fn
-        self.now = now or datetime.now
+        self.now = now or (lambda: datetime.now(timezone.utc))
         self.runner = runner
         self.rebuild = rebuild or self._rebuild
         self._config_mtime = self._mtime()
@@ -59,7 +59,9 @@ class Worker:
             trigger = "schedule"
 
         outcome = self.runner(self.ctx, trigger=trigger, run_id=run_id, progress=progress)
-        if outcome.failed and store.requeue(run_id, self.ctx.config.schedule.max_attempts):
+        if outcome.failed and outcome.retryable and store.requeue(
+                run_id, self.ctx.config.schedule.max_attempts
+            ):
             progress(f"run {run_id} failed, requeued")
         return outcome
 

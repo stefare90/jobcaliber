@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 
 from jobcaliber.bootstrap import AppContext
 from jobcaliber.core.domain import JobPosting
+from jobcaliber.infrastructure.ai.client.base import EngineUnreachable
 from jobcaliber.infrastructure.database import RunStats
 from jobcaliber.pipeline.evaluation import Evaluator
 from jobcaliber.pipeline.fetch import Fetcher
@@ -27,6 +28,7 @@ class RunOutcome:
     failed: bool = False
     attempt: int = 1
     error: str | None = None
+    retryable: bool = True
 
 
 def run_once(
@@ -58,6 +60,9 @@ def run_once(
     outcome = RunOutcome(run_id=run_id, config_v=config_v, engine=engine_name, dry_run=dry_run)
     stats = RunStats()
     try:
+        scorer = scorer or ctx.scorer(engine_name)
+        if not dry_run:
+            scorer.probe()
         fetcher = fetcher or Fetcher(config.scraping)
         queries = fetcher.build_queries(config.search)
         if max_queries:
@@ -68,9 +73,9 @@ def run_once(
         to_score = pending[:limit] if limit else pending
         progress(f"pending {len(pending)} · scoring {len(to_score)}")
 
-        scorer = scorer or ctx.scorer(engine_name)
         _score(ctx, scorer, to_score, run_id, config_v, engine_name, outcome, stats, dry_run, progress)
     except Exception as exc:
+        outcome.retryable = not isinstance(exc, EngineUnreachable)
         stats.status = "failed"
         stats.error = f"{type(exc).__name__}: {exc}"
         outcome.failed = True

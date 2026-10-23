@@ -241,3 +241,24 @@ def test_throttle_sleeps_before_every_request():
     client.complete("q")
     assert calls["n"] == 2
     assert sleeps == [0.5, 0.5]
+
+
+def test_probe_passes_on_an_open_port_and_fails_when_nothing_listens():
+    import socket
+
+    from jobcaliber.infrastructure.ai import AIClient
+    from jobcaliber.infrastructure.ai.client.base import EngineUnreachable
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    engine = AIEngine(kind="decision", api="systemone", base_url=f"http://127.0.0.1:{port}", model="m")
+    AIClient.create(engine, httpx.Client()).probe()          # no raise
+
+    listener.close()
+    try:
+        AIClient.create(engine, httpx.Client()).probe()
+        assert False, "expected EngineUnreachable"
+    except EngineUnreachable as error:
+        assert f"127.0.0.1:{port}" in str(error)

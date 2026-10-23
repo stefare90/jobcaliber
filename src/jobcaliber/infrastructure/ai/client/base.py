@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import random
+import socket
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -14,6 +15,10 @@ from jobcaliber.core.config import AIEngine
 
 class AIError(RuntimeError):
     pass
+
+
+class EngineUnreachable(AIError):
+    """Nothing is listening on the engine's host: retrying cannot help."""
 
 
 @dataclass
@@ -84,6 +89,16 @@ class AIClient(ABC):
     @abstractmethod
     def extract(self, data: dict) -> Any:
         """Pull the domain value out of the provider's JSON response."""
+
+    def probe(self) -> None:
+        """Fail fast when the engine is down, before a run spends minutes on fetching."""
+        url = httpx.URL(self.engine.base_url)
+        port = url.port or (443 if url.scheme == "https" else 80)
+        try:
+            with socket.create_connection((url.host, port), timeout=min(self.engine.timeout_s, 10)):
+                pass
+        except OSError as exc:
+            raise EngineUnreachable(f"engine unreachable at {url.host}:{port}: {exc}") from exc
 
     def headers(self) -> dict:
         headers = {"Content-Type": "application/json"}

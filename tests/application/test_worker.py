@@ -72,8 +72,17 @@ def test_is_due_without_a_previous_run():
 
 def test_is_due_after_the_slot_but_not_twice():
     now = datetime(2026, 10, 21, 9, 0)
-    assert is_due(["08:00"], now, "2026-10-20 08:00:03") is True
-    assert is_due(["08:00"], now, "2026-10-21 08:00:03") is False
+    assert is_due(["08:00"], now, "2026-10-20 06:00:03") is True
+    assert is_due(["08:00"], now, "2026-10-21 06:00:03") is False
+
+
+def test_is_due_compares_a_utc_run_with_local_slots():
+    """Regression: SQLite stores UTC, the schedule is local; a run just after the slot is not due."""
+    from datetime import timedelta, timezone
+
+    now = datetime(2026, 10, 23, 15, 0, tzinfo=timezone(timedelta(hours=2)))
+    assert is_due(["13:00"], now, "2026-10-23 11:00:05") is False    # 13:00:05 local
+    assert is_due(["13:00"], now, "2026-10-23 09:00:00") is True     # 11:00 local, before the slot
 
 
 def test_is_due_is_false_when_no_time_is_configured():
@@ -126,6 +135,9 @@ def test_failure_in_the_worker_leaves_the_run_failed_after_the_last_attempt(tmp_
     worker, _ = make_worker(store)
 
     class Boom:
+        def probe(self):
+            pass
+
         def score_posting(self, posting):
             raise RuntimeError("engine down")
 
@@ -135,6 +147,31 @@ def test_failure_in_the_worker_leaves_the_run_failed_after_the_last_attempt(tmp_
     with store.connect() as conn:
         rows = [dict(r) for r in conn.execute("SELECT status, attempt FROM runs ORDER BY id")]
     assert rows[-1] == {"status": "failed", "attempt": 3}
+
+
+def test_an_unreachable_engine_is_not_retried(tmp_path):
+    from jobcaliber.infrastructure.ai.client.base import EngineUnreachable
+
+    store = Store(tmp_path / "jobs.db")
+    worker, _ = make_worker(store)
+    scorer = FakeScorer(probe_error=EngineUnreachable("engine unreachable at 127.0.0.1:8017"))
+    outcome = run_tick(worker, scorer=scorer)
+    assert outcome.failed is True and outcome.retryable is False
+    with store.connect() as conn:
+        row = dict(conn.execute("SELECT status, attempt FROM runs ORDER BY id DESC LIMIT 1").fetchone())
+    assert row == {"status": "failed", "attempt": 1}
+
+
+def test_requeue_clears_the_stale_finished_at(tmp_path):
+    store = Store(tmp_path / "jobs.db")
+    run_id = store.start_run(1, "rizzo", "manual")
+    with store.connect() as conn:
+        conn.execute("UPDATE runs SET status = 'failed', finished_at = '2026-10-23 08:00:00' "
+                     "WHERE id = ?", (run_id,))
+    assert store.requeue(run_id, max_attempts=3) is True
+    with store.connect() as conn:
+        row = dict(conn.execute("SELECT finished_at, attempt FROM runs WHERE id = ?", (run_id,)).fetchone())
+    assert row == {"finished_at": None, "attempt": 2}
 
 
 def test_config_is_reloaded_when_the_file_changes(tmp_path):

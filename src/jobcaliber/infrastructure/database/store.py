@@ -119,8 +119,8 @@ class Store:
             if row is None or row["attempt"] >= max_attempts:
                 return False
             conn.execute(
-                "UPDATE runs SET status = 'requested', attempt = attempt + 1, error = NULL "
-                "WHERE id = ?",
+                "UPDATE runs SET status = 'requested', attempt = attempt + 1, error = NULL, "
+                "finished_at = NULL WHERE id = ?",
                 (run_id,),
             )
             return True

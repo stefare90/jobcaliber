@@ -25,6 +25,10 @@ class Scorer(ABC):
     @abstractmethod
     def score_posting(self, posting: JobPosting) -> ScoringResult: ...
 
+    def probe(self) -> None:
+        """Check the engine is reachable; the runner calls this before fetching."""
+        self.client.probe()
+
     @classmethod
     def register(cls, kind: str):
         def _decorator(subclass: type["Scorer"]) -> type["Scorer"]:

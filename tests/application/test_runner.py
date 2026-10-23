@@ -57,9 +57,16 @@ class FakeFetcher:
 
 
 class FakeScorer:
-    def __init__(self, answers=None):
+    def __init__(self, answers=None, probe_error=None):
         self.answers = answers or {"core_skills": 1.0, "location": "accepted"}
         self.calls = 0
+        self.probed = 0
+        self.probe_error = probe_error
+
+    def probe(self):
+        self.probed += 1
+        if self.probe_error:
+            raise self.probe_error
 
     def score_posting(self, posting):
         self.calls += 1
@@ -81,9 +88,9 @@ def context(config, store, yaml_text=YAML, engine="rizzo") -> AppContext:
                       raw_yaml=yaml_text, store=store, engine=engine)
 
 
-def run(config, store, postings, scorer=None, yaml_text=YAML, engine="rizzo", **kw):
+def run(config, store, postings, scorer=None, yaml_text=YAML, engine="rizzo", fetcher=None, **kw):
     return run_once(context(config, store, yaml_text, engine),
-                    fetcher=FakeFetcher(postings), scorer=scorer or FakeScorer(),
+                    fetcher=fetcher or FakeFetcher(postings), scorer=scorer or FakeScorer(),
                     progress=lambda *_: None, **kw)
 
 
@@ -155,6 +162,9 @@ def test_failure_is_recorded_and_reported(store):
     config = make_config()
 
     class Boom:
+        def probe(self):
+            pass
+
         def score_posting(self, posting):
             raise RuntimeError("engine down")
 
@@ -162,3 +172,29 @@ def test_failure_is_recorded_and_reported(store):
     assert outcome.failed is True and "engine down" in outcome.error
     last = store.last_run()
     assert last["status"] == "failed" and "engine down" in last["error"]
+
+
+def test_probe_fails_fast_before_the_fetch(store, monkeypatch):
+    """An engine that is down must not cost the fetch: nothing is collected."""
+    from jobcaliber.infrastructure.ai.client.base import EngineUnreachable
+
+    config = make_config()
+    fetcher = FakeFetcher([posting(1)])
+    scorer = FakeScorer(probe_error=EngineUnreachable("engine unreachable at 127.0.0.1:8017"))
+    outcome = run(config, store, [posting(1)], scorer=scorer, fetcher=fetcher)
+    assert outcome.failed is True and "unreachable" in outcome.error
+    assert outcome.retryable is False
+    assert fetcher.calls == 0 and scorer.calls == 0
+    assert store.last_run()["status"] == "failed"
+
+
+def test_a_scoring_error_stays_retryable(store):
+    class Boom:
+        def probe(self):
+            pass
+
+        def score_posting(self, posting):
+            raise RuntimeError("engine down")
+
+    outcome = run(make_config(), store, [posting(1)], scorer=Boom())
+    assert outcome.failed is True and outcome.retryable is True
