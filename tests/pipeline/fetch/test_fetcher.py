@@ -13,9 +13,7 @@ from jobcaliber.pipeline.fetch.models import Query
 
 def make_scraping(**over):
     defaults = dict(
-        country="italy",
-        hours_old=None,
-        job_type="fulltime",
+        board_country="italy",
         boards=["linkedin", "indeed"],
         board_max_results={"linkedin": 300, "indeed": 500},
     )
@@ -34,8 +32,8 @@ def make_search(**over):
 
 
 def test_build_queries_passes_location_strings_verbatim():
-    fetcher = Fetcher(make_scraping())
-    queries = fetcher.build_queries(make_search())
+    fetcher = Fetcher(make_scraping(), make_search())
+    queries = fetcher.build_queries()
     assert [(q.keywords, q.location, q.remote) for q in queries] == [
         ("Software Engineer", "Sardinia, Italy", False),
         ("Embedded Software Engineer", "Sardinia, Italy", False),
@@ -47,9 +45,8 @@ def test_build_queries_passes_location_strings_verbatim():
 
 
 def test_build_queries_without_remote_location():
-    fetcher = Fetcher(make_scraping())
-    search = make_search(remote_locations=[])
-    queries = fetcher.build_queries(search)
+    fetcher = Fetcher(make_scraping(), make_search(remote_locations=[]))
+    queries = fetcher.build_queries()
     assert [q.location for q in queries] == ["Sardinia, Italy"] * 3
     assert all(q.remote is False for q in queries)
 
@@ -98,7 +95,7 @@ def test_fetch_board_drops_captcha_and_dedups():
          "location": "z", "description": "captcha challenge", "date_posted": None,
          "min_amount": None, "max_amount": None},
     ])]
-    fetcher = Fetcher(make_scraping(), scrape_fn=lambda **kw: pages.pop(0), sleep_fn=lambda s: None)
+    fetcher = Fetcher(make_scraping(), make_search(), scrape_fn=lambda **kw: pages.pop(0), sleep_fn=lambda s: None)
     records, stats = fetcher.fetch_board(Query("Dev", "Sardinia, Italy", "Dev"), "linkedin")
     assert stats.seen == 3
     assert stats.usable == 2
@@ -120,7 +117,7 @@ def test_fetch_board_paginates_until_short_page():
         seen_offsets.append(kw["offset"])
         return full if kw["offset"] == 0 else short
 
-    fetcher = Fetcher(make_scraping(page_size=50), scrape_fn=fake, sleep_fn=lambda s: None)
+    fetcher = Fetcher(make_scraping(page_size=50), make_search(), scrape_fn=fake, sleep_fn=lambda s: None)
     records, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev", True), "linkedin")
     assert seen_offsets == [0, 50]
     assert stats.seen == 51
@@ -141,7 +138,7 @@ def test_fetch_board_respects_per_board_max_results():
         return page(kw["offset"])
 
     scraping = make_scraping(page_size=50, board_max_results={"linkedin": 120, "indeed": 500})
-    fetcher = Fetcher(scraping, scrape_fn=fake, sleep_fn=lambda s: None)
+    fetcher = Fetcher(scraping, make_search(), scrape_fn=fake, sleep_fn=lambda s: None)
     _, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev", True), "linkedin")
     assert calls == [0, 50, 100]
     assert stats.seen == 150
@@ -157,7 +154,7 @@ def test_fetch_board_stops_when_a_page_adds_no_new_posting():
         calls.append(kw["offset"])
         return repeated
 
-    fetcher = Fetcher(make_scraping(page_size=50), scrape_fn=fake, sleep_fn=lambda s: None)
+    fetcher = Fetcher(make_scraping(page_size=50), make_search(), scrape_fn=fake, sleep_fn=lambda s: None)
     _, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev", True), "linkedin")
     assert calls == [0, 50]
     assert stats.new == 1
@@ -167,8 +164,8 @@ def test_fetch_all_records_board_errors_without_raising():
     def boom(**kw):
         raise RuntimeError("board down")
 
-    fetcher = Fetcher(make_scraping(), scrape_fn=boom, sleep_fn=lambda s: None)
-    postings, per_board = fetcher.fetch_all(make_search())
+    fetcher = Fetcher(make_scraping(), make_search(), scrape_fn=boom, sleep_fn=lambda s: None)
+    postings, per_board = fetcher.fetch_all()
     assert postings == []
     assert per_board["linkedin"].errors and "board down" in per_board["linkedin"].errors[0]
 
@@ -182,7 +179,22 @@ def test_fetch_board_counts_skipped_captcha_rows():
          "location": "L", "description": "please solve this captcha", "date_posted": None,
          "min_amount": None, "max_amount": None},
     ])
-    fetcher = Fetcher(make_scraping(), scrape_fn=lambda **kw: frame, sleep_fn=lambda s: None)
+    fetcher = Fetcher(make_scraping(), make_search(), scrape_fn=lambda **kw: frame, sleep_fn=lambda s: None)
     records, stats = fetcher.fetch_board(Query("Dev", "Italy", "Dev"), "linkedin")
     assert stats.captcha_skipped == 1
     assert [r.url for r in records] == ["http://a"]
+
+
+def test_job_type_comes_from_search_and_country_from_scraping():
+    seen = {}
+
+    def fake(**kwargs):
+        seen.update(kwargs)
+        return pd.DataFrame()
+
+    fetcher = Fetcher(make_scraping(board_country="germany"), make_search(job_type="parttime"),
+                      scrape_fn=fake, sleep_fn=lambda s: None)
+    fetcher.fetch_board(Query(keywords="Dev", location="Berlin, Germany", role="dev"), "indeed")
+    assert seen["job_type"] == "parttime"          # a search filter
+    assert seen["country_indeed"] == "germany"     # which Indeed site
+    assert "hours_old" not in seen                 # removed

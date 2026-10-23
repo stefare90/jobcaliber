@@ -38,7 +38,6 @@ criteria:
       instructions: "which arrangement?"
       options: {primary: "onsite", remote: "remote", unknown: "unknown"}
       missing: "unknown"
-penalties: {core_skills: 0.85}
 notifications:
   telegram: {notify_threshold: 70, review_threshold: 60, min_confidence: 0.55}
 schedule:
@@ -63,7 +62,6 @@ def test_app_config_parses_full_yaml():
     assert cfg.search.exclude == ["tirocini"]
     assert cfg.criteria["core_skills"].min_threshold == 0.5
     assert isinstance(cfg.criteria["location"].gate, GateAccept)
-    assert cfg.penalties == {"core_skills": 0.85}
     assert cfg.ai.engines["rizzo"].kind == "decision"
     assert cfg.ai.roles["scorer"] == "rizzo"
 
@@ -75,7 +73,6 @@ def test_app_config_defaults():
         "criteria": {"core": {"min_threshold": 0.5, "question": {
             "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
     })
-    assert cfg.penalties == {}
     assert cfg.ai.engines == {}
     assert cfg.scraping.max_results("linkedin") == 300
 
@@ -147,14 +144,21 @@ def test_roles_reject_unknown_role_and_engine():
         AIConfig(engines={}, roles={"scorer": "ghost"})
 
 
-def test_load_config_prefers_personal_file(tmp_path):
-    example = tmp_path / "config.example.yaml"
-    example.write_text(FULL_YAML, encoding="utf-8")
-    path, cfg = load_config(tmp_path)
-    assert path.name == "config.example.yaml"
-    (tmp_path / "config.yaml").write_text(FULL_YAML, encoding="utf-8")
+def test_load_config_prefers_the_personal_profile_over_the_example(tmp_path):
+    data = yaml.safe_load(FULL_YAML)
+    profile = {k: v for k, v in data.items() if k in ("search", "evaluation", "criteria")}
+    runtime = {k: v for k, v in data.items() if k not in profile}
+    profile_text = yaml.safe_dump(profile, sort_keys=False)
+    runtime_text = yaml.safe_dump(runtime, sort_keys=False)
+
+    (tmp_path / "profile.example.yaml").write_text(profile_text, encoding="utf-8")
+    (tmp_path / "settings.example.yaml").write_text(runtime_text, encoding="utf-8")
     path, _ = load_config(tmp_path)
-    assert path.name == "config.yaml"
+    assert path.name == "profile.example.yaml"
+
+    (tmp_path / "profile.yaml").write_text(profile_text, encoding="utf-8")
+    path, _ = load_config(tmp_path)
+    assert path.name == "profile.yaml"
 
 
 def test_schedule_timezone_is_required():
@@ -170,8 +174,53 @@ def test_schedule_timezone_is_required():
 def test_load_config_rejects_an_unknown_zone(tmp_path):
     from jobcaliber.infrastructure.config_loader import ConfigError, load_config
 
-    source = (Path(__file__).resolve().parents[2] / "config.example.yaml").read_text(encoding="utf-8")
-    (tmp_path / "config.yaml").write_text(
-        source.replace('timezone: "Europe/Rome"', 'timezone: "Europe/Roma"'), encoding="utf-8")
+    root = Path(__file__).resolve().parents[2]
+    (tmp_path / "profile.yaml").write_text(
+        (root / "profile.example.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "settings.yaml").write_text(
+        (root / "settings.example.yaml").read_text(encoding="utf-8").replace(
+            'timezone: Europe/Rome', 'timezone: Europe/Roma'), encoding="utf-8")
     with pytest.raises(ConfigError, match="not an IANA zone"):
         load_config(tmp_path)
+
+
+def test_a_key_in_both_files_is_rejected(tmp_path):
+    from jobcaliber.infrastructure.config_loader import ConfigError, load_config
+
+    (tmp_path / "profile.yaml").write_text("search: {titles: [Dev], on_site_locations: [X]}\n"
+                                           "criteria: {core: {min_threshold: 0.5, question: {type: score, "
+                                           "instructions: '?', levels: [a, b], missing: 0}}}\n"
+                                           "scraping: {}\n", encoding="utf-8")
+    (tmp_path / "settings.yaml").write_text("scraping: {boards: [linkedin]}\n"
+                                            'schedule: {timezone: "Europe/Rome"}\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="declared in both"):
+        load_config(tmp_path)
+
+
+def test_missing_settings_file_fails_fast(tmp_path):
+    from jobcaliber.infrastructure.config_loader import ConfigError, load_config
+
+    (tmp_path / "profile.yaml").write_text("search: {titles: [Dev], on_site_locations: [X]}\n"
+                                           "criteria: {core: {min_threshold: 0.5, question: {type: score, "
+                                           "instructions: '?', levels: [a, b], missing: 0}}}\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="no settings file"):
+        load_config(tmp_path)
+
+
+def test_systemone_min_confidence_must_be_a_probability():
+    from jobcaliber.core.config import Evaluation
+
+    assert Evaluation(systemone_min_confidence=0.6).systemone_min_confidence == 0.6
+    with pytest.raises(ValidationError, match="within"):
+        Evaluation(systemone_min_confidence=1.5)
+
+
+def test_the_penalties_block_is_gone():
+    base = {
+        "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
+        "schedule": {"timezone": "UTC"},
+        "criteria": {"core": {"min_threshold": 0.5, "question": {
+            "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
+    }
+    with pytest.raises(ValidationError, match="penalties"):
+        AppConfig.model_validate({**base, "penalties": {"core": 0.8}})

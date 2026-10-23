@@ -5,7 +5,7 @@ folder named `<order>_<what_it_answers>`; results live in its `output/` (gitigno
 
 | Spike | Question it answers | Depends on |
 |---|---|---|
-| [`01_fetch_coverage`](01_fetch_coverage/) | Do the profile-driven queries reach enough usable offers, and which board/cap limits us? | network + `config.yaml` |
+| [`01_fetch_coverage`](01_fetch_coverage/) | Do the profile-driven queries reach enough usable offers, and which board/cap limits us? | network + `profile.yaml` |
 | [`02_engine_benchmark`](02_engine_benchmark/) | Which System One engine discriminates offers best, and at what latency? | `01/input/postings.jsonl` |
 
 ## Layout convention

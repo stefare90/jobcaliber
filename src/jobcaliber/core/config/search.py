@@ -11,6 +11,7 @@ class Search(BaseModel):
     on_site_locations: list[str] = Field(default_factory=list)
     remote_locations: list[str] = Field(default_factory=list)
     exclude: list[str] = Field(default_factory=list)
+    job_type: str | None = "fulltime"
 
     def render_values(self) -> dict[str, str]:
         """Placeholders available to every criterion question (`{{search.*}}`)."""

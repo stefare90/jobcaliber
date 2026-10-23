@@ -181,3 +181,21 @@ def test_schema_can_be_applied_twice(tmp_path):
     store = Store(path)
     with store.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 0
+
+
+def test_the_profile_keys_evaluations_and_the_settings_do_not(tmp_path):
+    """The version is the profile content (plus the rubric version), never the runtime settings."""
+    import jobcaliber.infrastructure.database.store as store_module
+
+    store = Store(tmp_path / "jobs.db")
+    profile = "search: {titles: [Dev]}\ncriteria: {core: {min_threshold: 0.5}}\n"
+    first, _ = store.config_version(profile)
+    assert store.config_version(profile)[0] == first          # same content, same version
+    assert store.config_version(profile + "\n# edited\n")[0] == first + 1
+
+    original = store_module.RUBRIC_VERSION
+    store_module.RUBRIC_VERSION = original + 1
+    try:
+        assert store.config_version(profile)[0] == first + 2     # new rubric -> new version
+    finally:
+        store_module.RUBRIC_VERSION = original

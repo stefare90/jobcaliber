@@ -34,6 +34,29 @@ ai:
 ROME = ZoneInfo("Europe/Rome")
 
 
+SETTINGS = """
+schedule:
+  timezone: "Europe/Rome"
+  scrape_times: ["08:00", "13:00"]
+  max_attempts: 3
+scraping:
+  boards: ["linkedin", "indeed"]
+ai:
+  engines:
+    rizzo: {kind: "decision", api: "systemone", base_url: "http://x", model: "m"}
+  roles: {scorer: "rizzo"}
+"""
+
+
+def _split(root):
+    """The loader reads two files; the fixtures keep the runtime half here."""
+    import yaml as pyyaml
+    data = pyyaml.safe_load(YAML)
+    profile = {k: data[k] for k in ("search", "criteria") if k in data}
+    (root / "profile.yaml").write_text(pyyaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+    (root / "settings.yaml").write_text(SETTINGS, encoding="utf-8")
+
+
 def make_config() -> AppConfig:
     import yaml as pyyaml
     return AppConfig.model_validate(pyyaml.safe_load(YAML))
@@ -43,7 +66,8 @@ def make_worker(store, now="2026-10-21T08:05:00", runner=None):
     from pathlib import Path
     config = make_config()
     ctx = AppContext(root=Path("."), config_path=Path("config.yaml"), config=config,
-                     raw_yaml=YAML, store=store, engine="rizzo", tz=ZoneInfo(config.schedule.timezone))
+                     raw_yaml=YAML, store=store, engine="rizzo",
+                     settings_path=Path("settings.yaml"), tz=ZoneInfo(config.schedule.timezone))
     return Worker(ctx, now=lambda: datetime.fromisoformat(now), runner=runner or fake_runner()), ctx
 
 
@@ -205,15 +229,15 @@ def test_config_is_reloaded_when_the_file_changes(tmp_path):
     from jobcaliber.bootstrap import build_context
 
     root = tmp_path
-    (root / "config.yaml").write_text(YAML, encoding="utf-8")
+    _split(root)
     ctx = build_context(root)
     worker = Worker(ctx, now=lambda: datetime.fromisoformat("2026-10-21T22:00:00"))
 
     assert worker.refresh(progress=lambda *_: None).config.schedule.scrape_times == ["08:00", "13:00"]
 
-    (root / "config.yaml").write_text(YAML.replace('scrape_times: ["08:00", "13:00"]',
-                                                   'scrape_times: ["09:30"]'), encoding="utf-8")
-    os.utime(root / "config.yaml", (0, 0))          # force a different mtime
+    (root / "settings.yaml").write_text(SETTINGS.replace('["08:00", "13:00"]', '["09:30"]'),
+                                        encoding="utf-8")
+    os.utime(root / "settings.yaml", (0, 0))        # force a different mtime
     refreshed = worker.refresh(progress=lambda *_: None)
     assert refreshed.config.schedule.scrape_times == ["09:30"]
     assert refreshed.store is ctx.store             # the database connection is kept
@@ -222,7 +246,7 @@ def test_config_is_reloaded_when_the_file_changes(tmp_path):
 def test_refresh_does_nothing_when_the_config_is_unchanged(tmp_path):
     from jobcaliber.bootstrap import build_context
 
-    (tmp_path / "config.yaml").write_text(YAML, encoding="utf-8")
+    _split(tmp_path)
     ctx = build_context(tmp_path)
     calls = []
     worker = Worker(ctx, now=lambda: datetime.fromisoformat("2026-10-21T22:00:00"),

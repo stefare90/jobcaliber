@@ -506,3 +506,15 @@ committing `config.yaml`.
   transitions, a nonexistent 02:30 slot, CLI/web agreement and the missing/invalid zone.
   Live: `/runs` and `jobcaliber status` both show 11:01 for the 09:01 UTC run; the worker, after
   the restart, created no run in 40 s with `--poll 5`. Tests 219.
+- [x] Config split profile/settings + criteria cleanup (2026-10-23) — `profile.yaml` (search,
+  `evaluation.systemone_min_confidence`, criteria) keys the evaluations; `settings.yaml`
+  (scraping, schedule, notifications, ai, db_path) never re-scores; a key in both files is an
+  error. Removed `in_table` (every criterion is a column; the picker still narrows), removed
+  `penalties` (**dead code**: a penalty applies only when an answer is missing, and a missing
+  answer returns REVIEW before confidence is read), removed `notify_threshold`,
+  `review_threshold`, `quiet_hours`, `digest_time` (never read), removed `hours_old` (unused).
+  `job_type` moved to `search` (it is a query filter); `scraping.country` -> `board_country`
+  (which Indeed site, not a location). Telegram config is now `{enabled, chat_id}`. The version
+  key also includes `RUBRIC_VERSION`, so changing the rubric projection in code invalidates
+  stored answers. Tests 225. Next run creates `config_v 3` and re-scores the 1002 stored postings
+  (~110 min) — the one-off price of the new key.

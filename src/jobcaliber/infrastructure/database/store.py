@@ -6,6 +6,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from jobcaliber.core.config.app import RUBRIC_VERSION
 from jobcaliber.core.domain import EvaluationResult, JobPosting, ScoringResult
 from jobcaliber.infrastructure.database.schema import ensure_schema
 
@@ -66,8 +67,8 @@ class Store:
     # --- config ---------------------------------------------------------
 
     def config_version(self, yaml_text: str) -> tuple[int, str]:
-        """Return (v, sha); a new version is created only when the content is new."""
-        sha = _content_sha(yaml_text)
+        """Return (v, sha) of the profile; a new version appears only when the content changes."""
+        sha = _content_sha(f"rubric-v{RUBRIC_VERSION}\n{yaml_text}")
         with self.connect() as conn:
             row = conn.execute("SELECT v FROM config_versions WHERE sha = ?", (sha,)).fetchone()
             if row:

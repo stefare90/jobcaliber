@@ -50,7 +50,7 @@ class FakeFetcher:
         self.boards = ["linkedin"]
         self.calls = 0
 
-    def build_queries(self, search):
+    def build_queries(self):
         return [FakeQuery()]
 
     def fetch_board(self, query, board):
@@ -89,7 +89,7 @@ def store(tmp_path):
 def context(config, store, yaml_text=YAML, engine="rizzo") -> AppContext:
     return AppContext(root=Path("."), config_path=Path("config.yaml"), config=config,
                       raw_yaml=yaml_text, store=store, engine=engine,
-                      tz=ZoneInfo(config.schedule.timezone))
+                      settings_path=Path("settings.yaml"), tz=ZoneInfo(config.schedule.timezone))
 
 
 def run(config, store, postings, scorer=None, yaml_text=YAML, engine="rizzo", fetcher=None, **kw):
@@ -202,3 +202,29 @@ def test_a_scoring_error_stays_retryable(store):
 
     outcome = run(make_config(), store, [posting(1)], scorer=Boom())
     assert outcome.failed is True and outcome.retryable is True
+
+
+def test_postings_are_persisted_board_by_board(store):
+    """A run that dies mid-fetch must not lose what it already collected."""
+    config = make_config()
+
+    class ProbeFetcher(FakeFetcher):
+        def __init__(self, postings, boards, check):
+            super().__init__(postings)
+            self.boards = boards
+            self.check = check
+
+        def fetch_board(self, query, board):
+            self.check(board)
+            return super().fetch_board(query, board)
+
+    seen = {}
+
+    def check(board):
+        with store.connect() as conn:
+            seen[board] = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+
+    fetcher = ProbeFetcher([posting(1), posting(2)], ["linkedin", "indeed"], check)
+    run(config, store, [posting(1), posting(2)], fetcher=fetcher)
+    assert seen["linkedin"] == 0                      # nothing before the first board
+    assert seen["indeed"] == 2                        # the first board was already stored

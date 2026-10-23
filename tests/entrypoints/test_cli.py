@@ -15,7 +15,9 @@ def test_status_prints_local_time_not_utc(tmp_path, capsys):
     config_path, config = load_config(ROOT)
     root = tmp_path / "root"
     (root / "data").mkdir(parents=True)
-    (root / "config.yaml").write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+    (root / "profile.yaml").write_text(config_path.read_text(encoding="utf-8"), encoding="utf-8")
+    (root / "settings.yaml").write_text(
+        (ROOT / "settings.example.yaml").read_text(encoding="utf-8"), encoding="utf-8")
     db_path = Path(config.db_path)
     store = Store(db_path if db_path.is_absolute() else root / db_path)
     run_id = store.start_run(1, "rizzo", "manual")

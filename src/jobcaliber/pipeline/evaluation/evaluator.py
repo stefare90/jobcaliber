@@ -34,9 +34,6 @@ class Evaluator:
         criteria = self.config.criteria
         scored = {k: c for k, c in criteria.items() if c.gate is None or c.gate is False}
         confidence = result.confidence
-        for key in sorted(result.missing & set(scored)):
-            penalty = self.config.penalties.get(key, 1.0)
-            confidence *= penalty
 
         for key, criterion in criteria.items():
             if gate_fails(key, criterion, result):
@@ -79,7 +76,7 @@ class Evaluator:
                  or answer_value(result, key) < criterion.apply_threshold)
         ]
         reasons = [f"'{key}' below apply_threshold" for key in below]
-        if confidence < self.config.notifications.telegram.min_confidence:
+        if confidence < self.config.evaluation.systemone_min_confidence:
             below.append("confidence")
             reasons.append(f"Confidence {confidence:.2f} below minimum")
         decision = GateDecision.REVIEW if below else GateDecision.PASS

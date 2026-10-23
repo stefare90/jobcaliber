@@ -12,7 +12,13 @@ from jobcaliber.core.config.criteria import (
     validate_criteria,
 )
 from jobcaliber.core.config.search import Search, validate_search
-from jobcaliber.core.config.settings import Notifications, Schedule, Scraping, TelegramNotifications
+from jobcaliber.core.config.settings import (
+    Evaluation,
+    Notifications,
+    Schedule,
+    Scraping,
+    TelegramConfig,
+)
 
 __all__ = [
     "BOOLEAN_OPTIONS",
@@ -22,6 +28,7 @@ __all__ = [
     "AIEngine",
     "AppConfig",
     "Criterion",
+    "Evaluation",
     "GateAccept",
     "GateMinScore",
     "Notifications",
@@ -30,7 +37,7 @@ __all__ = [
     "Schedule",
     "Scraping",
     "Search",
-    "TelegramNotifications",
+    "TelegramConfig",
     "validate_criteria",
     "validate_search",
 ]

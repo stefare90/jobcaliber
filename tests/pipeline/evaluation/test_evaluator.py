@@ -34,14 +34,13 @@ def criteria_default():
     }
 
 
-def make_config(criteria=None, penalties=None, min_conf=0.55):
+def make_config(criteria=None, min_conf=0.55):
     criteria = criteria or criteria_default()
     return AppConfig.model_validate({
         "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
         "schedule": {"timezone": "UTC"},
         "criteria": {k: v.model_dump() for k, v in criteria.items()},
-        "penalties": penalties or {},
-        "notifications": {"telegram": {"min_confidence": min_conf}},
+        "evaluation": {"systemone_min_confidence": min_conf},
     })
 
 
@@ -79,10 +78,17 @@ def test_not_verifiable_forces_review_and_never_drops():
     assert any("not verifiable" in r for r in ev.reasons)
 
 
-def test_missing_answer_applies_the_confidence_penalty():
-    cfg = make_config(penalties={"core_skills": 0.8})
-    ev = Evaluator(cfg).evaluate(result(missing={"core_skills"}, confidence=1.0))
-    assert ev.confidence == pytest.approx(0.8)
+def test_a_missing_answer_keeps_the_reported_confidence():
+    """Penalties were removed: a missing answer forces REVIEW, it no longer discounts confidence."""
+    ev = Evaluator(make_config()).evaluate(result(missing={"core_skills"}, confidence=0.9))
+    assert ev.decision == GateDecision.REVIEW
+    assert ev.confidence == pytest.approx(0.9)
+
+
+def test_systemone_min_confidence_blocks_a_pass():
+    ev = Evaluator(make_config(min_conf=0.95)).evaluate(result(confidence=0.9))
+    assert ev.decision == GateDecision.REVIEW
+    assert any("Confidence" in r for r in ev.reasons)
 
 
 def test_gate_drops_before_any_threshold():

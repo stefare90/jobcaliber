@@ -234,7 +234,7 @@ def main() -> int:
         per_query, per_board = reconstruct_from_raw(queries)
         exported = export_postings(RAW_DIR, BENCH_POSTINGS)
         report = render_report(
-            "not recorded (rebuilt from output/raw/)", config_path, config, Fetcher(config.scraping), queries,
+            "not recorded (rebuilt from output/raw/)", config_path, config, Fetcher(config.scraping, config.search), queries,
             per_query, per_board, exported, captcha_skipped=0, reconstructed=True,
         )
         REPORT_PATH.write_text(report, encoding="utf-8")
@@ -249,7 +249,7 @@ def main() -> int:
     started = datetime.now(timezone.utc).isoformat()
     config_path, config = load_config(ROOT)
     fetcher = Fetcher(
-        config.scraping,
+        config.scraping, config.search,
         on_page=lambda query, board, offset, seen: print(
             f"[page] {query.keywords} @ {query.location} / {board}: offset={offset} seen={seen}",
             flush=True,

@@ -66,7 +66,8 @@ the command line; the web app and the worker are next.
 
 ## The scoring model
 
-`config.yaml` has three blocks:
+`profile.yaml` holds the search inputs, the evaluation rules and the criteria;
+`settings.yaml` holds everything about how the system runs:
 
 ```yaml
 search:                      # the only bound part: it drives the boards
@@ -107,7 +108,7 @@ src/jobcaliber/
 ├── infrastructure/       # how to talk to the world
 │   ├── database/         #   store.py · schema.py · migrations/
 │   ├── ai/               #   transports (systemone, openai), prompt rendering
-│   ├── config_loader.py  #   reads config.yaml
+│   ├── config_loader.py  #   reads profile.yaml + settings.yaml
 │   └── env.py            #   reads .env
 ├── application/          # what happens, in which order
 │   ├── runner.py         #   one run: fetch → score → evaluate → save
@@ -148,7 +149,8 @@ git clone https://github.com/stefare90/jobcaliber && cd jobcaliber
 uv sync --frozen
 
 # 3. personal config + secrets (both gitignored)
-cp config.example.yaml config.yaml
+cp profile.example.yaml profile.yaml
+cp settings.example.yaml settings.yaml
 cp .env.example .env && chmod 600 .env     # API keys, if your engine needs one
 
 # 4. sanity checks
@@ -256,20 +258,39 @@ sudo firewall-cmd --remove-rich-rule='rule family="ipv4" source address="192.168
 
 ## Configuration
 
-- `search` — titles, on-site locations, remote locations, and an `exclude` list shown to the
-  `applicable` criterion (protected-category postings and similar). Location strings are sent
-  to the boards **verbatim**: write them the way the board spells them (`Sardinia, Italy`).
+Two files, split by what a change *costs*:
+
+> **`profile.yaml` answers “what am I looking for and how do I judge it”. Any change to it
+> re-scores every posting. `settings.yaml` answers “how does the system run”: changing it never
+> re-scores anything.**
+
+### `profile.yaml`
+
+- `search` — `titles`, `on_site_locations`, `remote_locations`, `exclude` (shown to the
+  `applicable` criterion: protected-category postings and similar) and `job_type` (`fulltime`,
+  `parttime`, … or null). Location strings are sent to the boards **verbatim**: write them the
+  way the board spells them (`Sardinia, Italy`).
+- `evaluation.systemone_min_confidence` — the confidence the decision engine reports per answer;
+  below it a posting is never `pass`, it stays `review`.
 - `criteria` — free-keyed; each one has `question` (`score` or `choice`, with `levels`/`options`
   and the `missing` marker) and either thresholds or a `gate`. Text may use
   `{{search.titles}}`, `{{search.on_site_locations}}`, `{{search.remote_locations}}`,
   `{{search.exclude}}`; an unresolved placeholder fails at startup.
-- `penalties` — confidence multiplier per criterion when the answer is missing.
-- `notifications.telegram` — thresholds, quiet hours (used from the Telegram milestone).
+
+### `settings.yaml`
+
+- `scraping` — `boards`, `page_size`, per-board `board_max_results`, and `board_country`
+  (which Indeed site to query; LinkedIn ignores it).
 - `schedule` — `timezone` (IANA name, **required**: `Europe/Rome`, `UTC`, …), `scrape_times`
   (`["08:00", "13:00"]`), `backup_time`, `max_attempts`.
-- `scraping` — boards, country, hours window, page size, per-board caps, job type.
+- `notifications.telegram` — `enabled` and `chat_id`.
 - `ai` — engines (`kind`, `api`, `base_url`, `model`, optional `api_key_env`, `headers`,
   `options`, `throttle_s`, `retry`) and the `scorer` role.
+- `db_path`.
+
+Evaluations are keyed by the **content of `profile.yaml`** (plus a rubric version bumped in code
+when the questions' projection changes), so tweaking a page size, a scrape time or a token never
+invalidates what the model already answered.
 
 **Time.** The database stores every timestamp in **UTC**; `scrape_times` are wall-clock times in
 `schedule.timezone`, and the web app and the CLI render UTC back into that same zone. Nothing
@@ -326,7 +347,7 @@ the lessons learned; `AGENT_PLAN.md` is the agent's build log.
 
 Postings, criteria and verdicts stay on your machine. Outside calls go only to the engine you
 configure. No captcha is stored, no LinkedIn login, no open ports: the web app will listen on
-localhost. `config.yaml`, `.env` and `data/` are gitignored and never pushed.
+localhost. `profile.yaml`, `settings.yaml`, `.env` and `data/` are gitignored and never pushed.
 
 ## License
 

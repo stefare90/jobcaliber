@@ -87,7 +87,7 @@ def parse_filters(request: Request, ctx: AppContext) -> dict:
     # even before a run has produced answers for it.
     known_columns = list(ctx.config.criteria)
     selectable = [*known_columns, *OPTIONAL_COLUMNS]
-    default_columns = [column for column in known_columns if ctx.config.criteria[column].in_table]
+    default_columns = list(known_columns)
     chosen = [c for raw in params.getlist("cols") for c in raw.split(",") if c in selectable]
     if params.getlist("cols"):
         visible = set(chosen)

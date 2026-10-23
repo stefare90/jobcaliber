@@ -63,8 +63,8 @@ def run_once(
         scorer = scorer or ctx.scorer(engine_name)
         if not dry_run:
             scorer.probe()
-        fetcher = fetcher or Fetcher(config.scraping)
-        queries = fetcher.build_queries(config.search)
+        fetcher = fetcher or Fetcher(config.scraping, config.search)
+        queries = fetcher.build_queries()
         if max_queries:
             queries = queries[:max_queries]
         progress(f"queries: {len(queries)} · boards: {', '.join(fetcher.boards)} · config_v {config_v}")
@@ -100,13 +100,15 @@ def _collect(ctx: AppContext, fetcher, queries, stats: RunStats, dry_run: bool,
             stats.fetched += board_stats.seen
             stats.usable += board_stats.usable
             stats.error = "; ".join(board_stats.errors) or stats.error
+            if not dry_run:
+                inserted = sum(int(ctx.store.upsert_posting(posting)[1]) for posting in batch)
+                stats.new += inserted
+                progress(f"{board} · {query.keywords} @ {query.location}: "
+                         f"{len(batch)} rows · {inserted} new · {stats.new} new in this run")
     if dry_run:
         stats.new = len(postings)
         return postings
     progress(f"fetched {stats.fetched} rows ({stats.usable} usable)")
-    for posting in postings:
-        _, is_new = ctx.store.upsert_posting(posting)
-        stats.new += int(is_new)
     return ctx.store.pending(_config_version(ctx), ctx.engine)
 
 

@@ -46,8 +46,10 @@ Entry points are the only place allowed to import everything.
    before `_collect`, so a dead engine costs ~40 ms instead of a whole fetch (~28 min). That
    failure is **not retried** (`RunOutcome.retryable = False`): retrying cannot fix a stopped
    service, and the worker must not burn its 3 attempts on it.
-5. **Config is content-addressed**: `config_versions(v, yaml, sha)`; a run reuses the version when
-   the file is unchanged, creates a new one when it changes.
+5. **Config split by cost**: `profile.yaml` (search + evaluation + criteria) keys the evaluations
+   (`config_versions(v, yaml, sha)` over the profile text + `RUBRIC_VERSION`); `settings.yaml`
+   (scraping, schedule, notifications, ai, db_path) never re-scores. A key declared in both files
+   is rejected. Same content → same version; new profile → new version.
 6. **Schema changes are manual**: `Store` *creates* an empty DB, never alters an existing one;
    `jobcaliber db migrate` applies migrations (backup + one transaction per step). `db check`
    diffs the live schema against `schema.sql`.
@@ -104,6 +106,9 @@ header). Default `roles: {scorer: rizzo}`.
   wall clock of `scrape_times` and of every rendered date; `AppContext.tz` is resolved once in
   `bootstrap`, `is_due` compares UTC instants, `core/formatting.local_time` is the only formatter
   (web filter + CLI, and the notifier later). Never call a bare `astimezone()`.
+- **`penalties` were dead code**: a penalty only applies when an answer is missing, and a missing
+  answer returns REVIEW *before* confidence is read — so a penalty could never change a decision.
+  Removed. `missing` alone forces REVIEW.
 - **SQLite `datetime('now')` is UTC, the schedule is local**: comparing them raw made every
   scheduled run look two hours old, so the worker started a new one on every poll. `is_due` now
   interprets the stored value as UTC and builds the slots in `schedule.timezone`.

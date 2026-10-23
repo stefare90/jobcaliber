@@ -36,7 +36,6 @@ class Criterion(BaseModel):
     apply_threshold: float | None = None
     gate: bool | GateAccept | GateMinScore | None = None
     question: Question
-    in_table: bool = True
 
 
 BOOLEAN_OPTIONS = {"yes", "no", "missing"}
@@ -109,7 +108,7 @@ def _validate_gate(key: str, criterion: Criterion) -> None:
             raise ValueError(f"criterion '{key}': gate.min_score must be within [0, 1], got {gate.min_score}")
 
 
-def validate_criteria(criteria: dict[str, Criterion], penalties: dict[str, float] | None = None) -> None:
+def validate_criteria(criteria: dict[str, Criterion]) -> None:
     if not criteria:
         raise ValueError("at least one criterion is required")
     for key, criterion in criteria.items():
@@ -139,8 +138,3 @@ def validate_criteria(criteria: dict[str, Criterion], penalties: dict[str, float
             _validate_gate(key, criterion)
     if not any(c.gate is None or c.gate is False for c in criteria.values()):
         raise ValueError("at least one scored criterion is required")
-    for key, penalty in (penalties or {}).items():
-        if key not in criteria:
-            raise ValueError(f"penalty for unknown criterion '{key}'; known: {sorted(criteria)}")
-        if not 0.0 < penalty <= 1.0:
-            raise ValueError(f"criterion '{key}': penalty must be within (0, 1], got {penalty}")

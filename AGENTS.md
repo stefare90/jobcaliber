@@ -72,7 +72,7 @@ Nothing is marked complete without proof of testing:
 ### B. Pure Pipeline Architecture
 The source tree is layered (`core/` -> `pipeline/` -> `infrastructure/` -> `application/` ->
 `entrypoints/`, wired by `bootstrap.py`), and inside `pipeline/` there is one folder per step
-(`fetch/`, `scoring/`, `evaluation/`), with `core/` free of I/O — reading `config.yaml`
+(`fetch/`, `scoring/`, `evaluation/`), with `core/` free of I/O — reading `profile.yaml`/`settings.yaml`
 and `.env` lives in `infrastructure/config_loader.py` and `infrastructure/env.py`.
 Shared **pure** helpers that every layer needs are the one exception allowed in `core/`
 (e.g. `core/formatting.py`: UTC->local timestamps for the web, the CLI and the notifier),
@@ -123,10 +123,13 @@ because a helper placed in `entrypoints/` cannot be imported by anything else:
   overrides any default. No prompt text is hardcoded in Python.
 
 ### D. Configuration Discipline
-- Personal configuration lives in gitignored `config.yaml`.
-- Generic template lives in `config.example.yaml` (v9 clean schema).
+- Personal configuration lives in two gitignored files: `profile.yaml` (search inputs, evaluation
+  rules, criteria — **any change re-scores**) and `settings.yaml` (scraping, schedule,
+  notifications, ai, paths — **never re-scores**). Templates: `profile.example.yaml`,
+  `settings.example.yaml`. The split *is* the versioning rule: evaluations are keyed by the
+  profile content (+ `RUBRIC_VERSION` from the code), never by the settings.
 - No hardcoded parameters, thresholds, or heuristics in source code.
-- Secret values never enter `config.yaml`: engines declare `api_key_env` and
+- Secret values never enter `profile.yaml`/`settings.yaml`: engines declare `api_key_env` and
   `load_config()` loads the gitignored `<repo>/.env` (`chmod 600`) into the process
   environment first. A real environment variable always wins over the file
   (`os.environ.setdefault`), so systemd `EnvironmentFile` and CI secrets still work.

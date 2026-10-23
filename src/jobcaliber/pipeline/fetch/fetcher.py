@@ -21,8 +21,10 @@ POLITENESS_GAP_S = 2
 
 
 class Fetcher:
-    def __init__(self, scraping: Scraping, scrape_fn=None, sleep_fn=time.sleep, on_page=None):
+    def __init__(self, scraping: Scraping, search: Search, scrape_fn=None, sleep_fn=time.sleep,
+                 on_page=None):
         self.scraping = scraping
+        self.search = search
         self.scrape_fn = scrape_fn or self._scrape
         self.sleep_fn = sleep_fn
         self.on_page = on_page
@@ -36,8 +38,8 @@ class Fetcher:
     def page_size(self) -> int:
         return self.scraping.page_size
 
-    def build_queries(self, search: Search) -> list[Query]:
-        return build_queries(search)
+    def build_queries(self) -> list[Query]:
+        return build_queries(self.search)
 
     def _scrape(self, **kwargs):
         return scrape_jobs(**kwargs)
@@ -55,9 +57,8 @@ class Fetcher:
                 is_remote=query.remote,
                 results_wanted=self.page_size,
                 offset=offset,
-                hours_old=self.scraping.hours_old,
-                country_indeed=self.scraping.country,
-                job_type=self.scraping.job_type,
+                country_indeed=self.scraping.board_country,
+                job_type=self.search.job_type,
                 linkedin_fetch_description=(board == "linkedin"),
                 verbose=0,
             )
@@ -87,8 +88,8 @@ class Fetcher:
             self.sleep_fn(POLITENESS_GAP_S)
         return postings, stats
 
-    def fetch_all(self, search: Search) -> tuple[list[JobPosting], dict[str, FetchStats]]:
-        queries = self.build_queries(search)
+    def fetch_all(self) -> tuple[list[JobPosting], dict[str, FetchStats]]:
+        queries = self.build_queries()
         all_postings: list[JobPosting] = []
         per_board: dict[str, FetchStats] = {b: FetchStats() for b in self.boards}
         for qi, query in enumerate(queries, start=1):

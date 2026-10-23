@@ -6,7 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from jobcaliber.core.config import AppConfig
-from jobcaliber.infrastructure.config_loader import load_config
+from jobcaliber.infrastructure.config_loader import load_config, settings_path
 from jobcaliber.application.clients import AIClients
 from jobcaliber.infrastructure.database import Store
 
@@ -15,6 +15,7 @@ from jobcaliber.infrastructure.database import Store
 class AppContext:
     root: Path
     config_path: Path
+    settings_path: Path
     config: AppConfig
     raw_yaml: str
     store: Store
@@ -36,6 +37,7 @@ def build_context(root: Path, engine: str | None = None, store: Store | None = N
     return AppContext(
         root=root,
         config_path=config_path,
+        settings_path=settings_path(root),
         config=config,
         raw_yaml=config_path.read_text(encoding="utf-8"),
         store=store or Store(_db_path(root, config)),

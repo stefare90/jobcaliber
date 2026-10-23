@@ -1,0 +1,58 @@
+# settings.example.yaml - the template for settings.yaml: HOW the system runs.
+# Copy to settings.yaml and edit. Changes here never re-score anything.
+db_path: ./data/jobs.db
+scraping:
+  boards:
+  - linkedin
+  - indeed
+  page_size: 50
+  board_max_results:
+    linkedin: 300
+    indeed: 500
+  board_country: italy
+schedule:
+  timezone: Europe/Rome
+  scrape_times:
+  - 08:00
+  backup_time: 03:00
+notifications:
+  telegram:
+    enabled: true
+    chat_id: null
+ai:
+  prompts_dir: prompts
+  engines:
+    rizzo:
+      kind: decision
+      api: systemone
+      base_url: http://127.0.0.1:8017
+      model: rizzo-latest
+    jev:
+      kind: decision
+      api: systemone
+      base_url: https://opencode.ai/inference
+      model: jev-1.13-free
+      api_key_env: OPENCODE_API_KEY
+      throttle_s: 0.5
+      retry:
+        max_attempts: 5
+        base_delay_s: 2.0
+        max_delay_s: 30.0
+    local_llm:
+      kind: llm
+      api: openai
+      base_url: http://localhost:11434/v1
+      model: qwen3:8b
+      options:
+        reasoning_effort: none
+    opencode_llm:
+      kind: llm
+      api: openai
+      base_url: https://opencode.ai/inference/go/v1
+      model: deepseek-v4.1-flash
+      api_key_env: OPENCODE_API_KEY
+      headers:
+        x-opencode-session: jobcaliber
+  roles:
+    scorer: rizzo
+  custom_prompts: {}

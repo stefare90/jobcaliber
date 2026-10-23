@@ -170,18 +170,6 @@ def test_choice_missing_must_be_an_option_key():
         validate_criteria({"x": Criterion(gate=GateAccept(accept=["primary"]), question=choice_q(missing="nope"))})
 
 
-# --- penalties --------------------------------------------------------------
-
-def test_penalties_must_reference_known_criteria():
-    with pytest.raises(ValueError, match="penalty for unknown criterion 'ghost'"):
-        validate_criteria({"core": scored()}, penalties={"ghost": 0.8})
-
-
-def test_penalty_must_be_a_factor():
-    with pytest.raises(ValueError, match=r"penalty must be within \(0, 1\]"):
-        validate_criteria({"core": scored()}, penalties={"core": 0.0})
-
-
 def test_empty_criteria_are_rejected():
     with pytest.raises(ValueError, match="at least one criterion"):
         validate_criteria({})
@@ -196,7 +184,7 @@ def test_full_happy_path_with_mixed_criteria():
         "location": Criterion(gate=GateAccept(accept=["primary", "remote", "hybrid"]), question=choice_q()),
         "contract_ok": Criterion(gate=True, question=bool_q()),
     }
-    validate_criteria(criteria, penalties={"core_skills": 0.85})
+    validate_criteria(criteria)
     assert set(criteria) == {"core_skills", "tools", "role_fit", "pay", "location", "contract_ok"}
 
 

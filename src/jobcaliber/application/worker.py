@@ -21,10 +21,14 @@ class Worker:
         self._config_mtime = self._mtime()
 
     def _mtime(self) -> float | None:
-        try:
-            return self.ctx.config_path.stat().st_mtime
-        except OSError:
-            return None
+        """Newest of the two config files: a change to either must trigger the reload."""
+        stamps = []
+        for path in (self.ctx.config_path, self.ctx.settings_path):
+            try:
+                stamps.append(path.stat().st_mtime)
+            except OSError:
+                pass
+        return max(stamps) if stamps else None
 
     def _rebuild(self, ctx: AppContext) -> AppContext:
         from jobcaliber.bootstrap import build_context

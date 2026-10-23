@@ -22,6 +22,7 @@ def ctx(tmp_path):
     store = Store(tmp_path / "jobs.db")
     return AppContext(root=ROOT, config_path=path, config=config,
                       raw_yaml=path.read_text(encoding="utf-8"), store=store, engine="rizzo",
+                      settings_path=path.with_name("settings.yaml"),
                       tz=ZoneInfo(config.schedule.timezone))
 
 
@@ -323,17 +324,16 @@ def test_salary_is_not_a_table_column_but_stays_on_the_detail(client, ctx):
     assert "Salary" in client.get(f"/jobs/{job_id}").text
 
 
-def test_scored_criteria_are_the_default_columns(client, ctx):
+def test_every_criterion_is_a_default_column(client, ctx):
     job_id, _ = seed(ctx)
     config_v, _ = ctx.store.config_version(ctx.raw_yaml)
     add_job(ctx.store, config_v, "https://x/gate", "Gated role", "Acme", GateDecision.PASS, 75.0,
-            {"core_skills": 0.67, "applicable": "no"})     # a gate answer, so the column exists
-    page = client.get("/jobs")
-    text = page.text
-    assert ">core_skills</a></th>" in text          # scored
-    assert ">applicable</a></th>" not in text       # gate: detail only
-    enabled = client.get("/jobs?cols=core_skills,applicable")
-    assert ">applicable</a></th>" in enabled.text
+            {"core_skills": 0.67, "applicable": "no"})
+    text = client.get("/jobs").text
+    assert ">core_skills</a></th>" in text
+    assert ">applicable</a></th>" in text           # gates are columns too, no in_table flag
+    narrowed = client.get("/jobs?cols=core_skills")
+    assert ">applicable</a></th>" not in narrowed.text
 
 
 def test_description_blank_lines_are_collapsed(client, ctx):
