@@ -141,6 +141,10 @@ the detail page, a `status` column + `state=` filter in the list, `/applications
 
 ## Open work
 
+- **Next**: multi-row filters — one row per criterion (AND), extended to every column (score,
+  confidence, board, ad location, decision, status, salary, last seen, run), each with its own input
+  type (operator + number, free text, or a list).
+
 - **Now**: application ledger (feedback becomes "applied / will apply / not interested", keyed on the
   job, with a `/applications` page and an export).
 - Deferred: nightly backup, model calibration, live run counters, config editor + profile diff.
