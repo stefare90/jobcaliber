@@ -123,6 +123,13 @@ header). Default `roles: {scorer: rizzo}`.
   (wlan0), hostname `stefare-PC`, Avahi active.
 - A full first run on an empty DB is ~1.5-2h (fetch ~25 min + ~900 postings × 5 s).
 
+## Notifications (implemented 2026-10-23)
+
+`infrastructure/notify/telegram.py` (httpx, no framework): one digest per run with every new
+`pass` posting, ad link + `/jobs?decisions=pass&run=<id>`; 10 offers then "…and N more"; HTML
+escaped; 4096-char cap; `notified_at` for idempotency; a delivery error never fails the run.
+Bot `@jobcaliber_bot`, chat id in gitignored `settings.yaml`, token in `.env`.
+
 ## Next steps (agreed, not started)
 
 1. ~~LAN access~~ **done**: the unit binds `0.0.0.0`, README has "Access from your phone"

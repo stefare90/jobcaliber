@@ -42,6 +42,7 @@ def run_once(
     run_id: int | None = None,
     fetcher=None,
     scorer=None,
+    notifier=None,
     progress=print,
 ) -> RunOutcome:
     """Run one pass. `fetcher`/`scorer` are injectable so tests never touch the network."""
@@ -86,6 +87,9 @@ def run_once(
         outcome.scored = stats.scored
         if not dry_run and run_id is not None:
             store.finish_run(run_id, stats, outcome.duration_ms)
+    notifier = notifier or ctx.notifier
+    if notifier and not dry_run and not outcome.failed:
+        _notify(ctx, notifier, run_id, progress)
     return outcome
 
 
@@ -110,6 +114,19 @@ def _collect(ctx: AppContext, fetcher, queries, stats: RunStats, dry_run: bool,
         return postings
     progress(f"fetched {stats.fetched} rows ({stats.usable} usable)")
     return ctx.store.pending(_config_version(ctx), ctx.engine)
+
+
+def _notify(ctx: AppContext, notifier, run_id: int | None, progress) -> None:
+    """A digest of the new `pass` postings; a delivery problem never fails the run."""
+    rows = [row for row in ctx.store.new_notifiable() if row.decision == "pass"]
+    if not rows:
+        return
+    error = notifier.send(rows, run_id)
+    if error:
+        progress(f"telegram: not sent ({error})")
+        return
+    ctx.store.mark_notified([row.id for row in rows])
+    progress(f"telegram: {len(rows)} offers sent")
 
 
 def _config_version(ctx: AppContext) -> int:

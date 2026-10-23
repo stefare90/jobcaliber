@@ -5,11 +5,21 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class TelegramConfig(BaseModel):
-    enabled: bool = True
+    enabled: bool = False
     chat_id: str | None = None
+    token_env: str = "TELEGRAM_BOT_TOKEN"
+    max_offers: int = 10
+
+    @model_validator(mode="after")
+    def _enabled_needs_a_chat(self) -> "TelegramConfig":
+        if self.enabled and not (self.chat_id or "").strip():
+            raise ValueError("notifications.telegram.enabled requires chat_id")
+        return self
 
 
 class Notifications(BaseModel):
+    # Where the links inside a notification point (the web app as the phone sees it).
+    base_url: str = "http://127.0.0.1:8765"
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
 
 

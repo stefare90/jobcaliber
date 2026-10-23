@@ -518,3 +518,12 @@ committing `config.yaml`.
   key also includes `RUBRIC_VERSION`, so changing the rubric projection in code invalidates
   stored answers. Tests 225. Next run creates `config_v 3` and re-scores the 1002 stored postings
   (~110 min) — the one-off price of the new key.
+- [x] Telegram notifications (2026-10-23) — `infrastructure/notify/telegram.py` (httpx, no
+  framework): at the end of a successful run, one HTML message with every new `pass` posting
+  (title, company, score, ad link) plus a link to `/jobs?decisions=pass&run=<id>`; 10 offers then
+  "…and N more"; titles escaped; hard cap at Telegram's 4096 chars; `notified_at` makes it
+  idempotent; a delivery failure is logged and the run stays `ok` (the offer is retried next run);
+  `enabled` without `chat_id`, or without the token in `.env`, fails at startup. Config:
+  `notifications.base_url` + `notifications.telegram {enabled, chat_id, token_env, max_offers}`.
+  Real delivery verified against `@jobcaliber_bot` (chat 657083271): 5 pass postings sent.
+  Tests 235.

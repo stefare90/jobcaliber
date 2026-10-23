@@ -283,7 +283,8 @@ Two files, split by what a change *costs*:
   (which Indeed site to query; LinkedIn ignores it).
 - `schedule` — `timezone` (IANA name, **required**: `Europe/Rome`, `UTC`, …), `scrape_times`
   (`["08:00", "13:00"]`), `backup_time`, `max_attempts`.
-- `notifications.telegram` — `enabled` and `chat_id`.
+- `notifications` — `base_url` (where links in a message point, i.e. the web app as the phone
+  sees it) and `telegram` (`enabled`, `chat_id`, `token_env`, `max_offers`).
 - `ai` — engines (`kind`, `api`, `base_url`, `model`, optional `api_key_env`, `headers`,
   `options`, `throttle_s`, `retry`) and the `scorer` role.
 - `db_path`.
@@ -291,6 +292,14 @@ Two files, split by what a change *costs*:
 Evaluations are keyed by the **content of `profile.yaml`** (plus a rubric version bumped in code
 when the questions' projection changes), so tweaking a page size, a scrape time or a token never
 invalidates what the model already answered.
+
+**Telegram.** When `notifications.telegram.enabled` is on, the end of every run sends **one
+message** containing all the postings decided `pass` in that run (never `review`/`drop`): title,
+company, score, link to the original ad, and a link to the filtered list
+(`/jobs?decisions=pass&run=<id>`). Messages are capped at 10 offers plus "…and N more", and at
+Telegram's 4096-character limit. `notified_at` makes delivery idempotent, so an offer is never
+sent twice; if Telegram is unreachable the run still ends `ok` and the offer stays queued for the
+next run. The bot token lives in `.env` (`TELEGRAM_BOT_TOKEN`), never in the config.
 
 **Time.** The database stores every timestamp in **UTC**; `scrape_times` are wall-clock times in
 `schedule.timezone`, and the web app and the CLI render UTC back into that same zone. Nothing

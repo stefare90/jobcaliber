@@ -228,3 +228,42 @@ def test_postings_are_persisted_board_by_board(store):
     run(config, store, [posting(1), posting(2)], fetcher=fetcher)
     assert seen["linkedin"] == 0                      # nothing before the first board
     assert seen["indeed"] == 2                        # the first board was already stored
+
+
+class FakeNotifier:
+    def __init__(self, error=None):
+        self.error = error
+        self.rows = []
+        self.run_id = None
+
+    def send(self, rows, run_id):
+        self.rows = list(rows)
+        self.run_id = run_id
+        return self.error
+
+
+def test_a_successful_run_notifies_the_pass_postings(store):
+    notifier = FakeNotifier()
+    outcome = run(make_config(), store, [posting(1), posting(2)], notifier=notifier)
+    assert outcome.failed is False
+    assert len(notifier.rows) == 2 and notifier.run_id == outcome.run_id
+    assert all(row.decision == "pass" for row in notifier.rows)
+    with store.connect() as conn:
+        notified = conn.execute("SELECT COUNT(*) FROM jobs WHERE notified_at IS NOT NULL").fetchone()[0]
+    assert notified == 2
+
+
+def test_review_postings_are_not_notified(store):
+    notifier = FakeNotifier()
+    scorer = FakeScorer({"core_skills": 0.55, "location": "accepted"})   # below apply_threshold
+    run(make_config(), store, [posting(1)], scorer=scorer, notifier=notifier)
+    assert notifier.rows == []
+
+
+def test_a_delivery_failure_keeps_the_run_ok_and_the_offer_unnotified(store):
+    notifier = FakeNotifier(error="400: chat not found")
+    outcome = run(make_config(), store, [posting(1)], notifier=notifier)
+    assert outcome.failed is False and store.last_run()["status"] == "ok"
+    with store.connect() as conn:
+        notified = conn.execute("SELECT COUNT(*) FROM jobs WHERE notified_at IS NOT NULL").fetchone()[0]
+    assert notified == 0
