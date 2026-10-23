@@ -2,6 +2,7 @@ import html as html_lib
 import re
 import sqlite3
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,7 +21,8 @@ def ctx(tmp_path):
     path, config = load_config(ROOT)
     store = Store(tmp_path / "jobs.db")
     return AppContext(root=ROOT, config_path=path, config=config,
-                      raw_yaml=path.read_text(encoding="utf-8"), store=store, engine="rizzo")
+                      raw_yaml=path.read_text(encoding="utf-8"), store=store, engine="rizzo",
+                      tz=ZoneInfo(config.schedule.timezone))
 
 
 @pytest.fixture()
@@ -442,3 +444,16 @@ def test_back_from_the_detail_returns_to_the_same_page_and_filters(client, ctx):
     assert "offset=10" in nav_href and "decisions=pass" in nav_href
     back = client.get(nav_href)
     assert "11–" in back.text                          # still page 2
+
+
+def test_runs_show_local_time(client, ctx):
+    from jobcaliber.core.formatting import local_time
+
+    store = ctx.store
+    run_id = store.start_run(1, "rizzo", "manual")
+    with store.connect() as conn:
+        conn.execute("UPDATE runs SET started_at = '2026-10-23 08:00:00', status = 'ok' WHERE id = ?",
+                     (run_id,))
+    page = client.get("/runs").text
+    assert local_time("2026-10-23 08:00:00", ctx.tz) in page
+    assert "2026-10-23 08:00" not in page

@@ -38,6 +38,7 @@ class Scraping(BaseModel):
 
 
 class Schedule(BaseModel):
+    timezone: str
     scrape_times: list[str] = Field(default_factory=list)
     backup_time: str = "03:00"
     max_attempts: int = 3

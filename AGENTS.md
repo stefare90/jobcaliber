@@ -73,7 +73,10 @@ Nothing is marked complete without proof of testing:
 The source tree is layered (`core/` -> `pipeline/` -> `infrastructure/` -> `application/` ->
 `entrypoints/`, wired by `bootstrap.py`), and inside `pipeline/` there is one folder per step
 (`fetch/`, `scoring/`, `evaluation/`), with `core/` free of I/O — reading `config.yaml`
-and `.env` lives in `infrastructure/config_loader.py` and `infrastructure/env.py`:
+and `.env` lives in `infrastructure/config_loader.py` and `infrastructure/env.py`.
+Shared **pure** helpers that every layer needs are the one exception allowed in `core/`
+(e.g. `core/formatting.py`: UTC->local timestamps for the web, the CLI and the notifier),
+because a helper placed in `entrypoints/` cannot be imported by anything else:
 1. **Ingestion (`pipeline/fetch/`)**: query boards and return raw, normalized `JobPosting` objects.
    - No gates, no hard drops, no scoring inside fetch.
    - Paginates cleanly, respects rate limits, never stores captchas, normalizes `NaN -> None`.

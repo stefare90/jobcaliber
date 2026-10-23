@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 import yaml
 from pydantic import ValidationError
@@ -39,6 +41,8 @@ criteria:
 penalties: {core_skills: 0.85}
 notifications:
   telegram: {notify_threshold: 70, review_threshold: 60, min_confidence: 0.55}
+schedule:
+  timezone: "Europe/Rome"
 scraping:
   boards: ["linkedin", "indeed"]
   board_max_results: {linkedin: 300, indeed: 500}
@@ -67,6 +71,7 @@ def test_app_config_parses_full_yaml():
 def test_app_config_defaults():
     cfg = AppConfig.model_validate({
         "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
+        "schedule": {"timezone": "UTC"},
         "criteria": {"core": {"min_threshold": 0.5, "question": {
             "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
     })
@@ -79,6 +84,8 @@ def test_app_config_rejects_unknown_top_level_key():
     with pytest.raises(ValidationError):
         AppConfig.model_validate({
             "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
+            "schedule": {"timezone": "UTC"},
+        "schedule": {"timezone": "UTC"},
             "criteria": {"core": {"min_threshold": 0.5, "question": {
                 "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
             "job_filters": {"core_skills": {"weight": 45}},
@@ -89,6 +96,8 @@ def test_app_config_rejects_invalid_criteria():
     with pytest.raises(ValidationError, match="set a gate or at least one threshold"):
         AppConfig.model_validate({
             "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
+            "schedule": {"timezone": "UTC"},
+        "schedule": {"timezone": "UTC"},
             "criteria": {"core": {"question": {
                 "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
         })
@@ -98,6 +107,8 @@ def test_board_max_results_rejects_unknown_board():
     with pytest.raises(ValidationError, match="board_max_results names unknown boards"):
         AppConfig.model_validate({
             "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
+            "schedule": {"timezone": "UTC"},
+        "schedule": {"timezone": "UTC"},
             "criteria": {"core": {"min_threshold": 0.5, "question": {
                 "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
             "scraping": {"boards": ["linkedin"], "board_max_results": {"linkedin": 300, "indeed": 500}},
@@ -144,3 +155,23 @@ def test_load_config_prefers_personal_file(tmp_path):
     (tmp_path / "config.yaml").write_text(FULL_YAML, encoding="utf-8")
     path, _ = load_config(tmp_path)
     assert path.name == "config.yaml"
+
+
+def test_schedule_timezone_is_required():
+    base = {
+        "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
+        "criteria": {"core": {"min_threshold": 0.5, "question": {
+            "type": "score", "instructions": "?", "levels": ["a", "b"], "missing": 0}}},
+    }
+    with pytest.raises(ValidationError, match="timezone"):
+        AppConfig.model_validate({**base, "schedule": {}})
+
+
+def test_load_config_rejects_an_unknown_zone(tmp_path):
+    from jobcaliber.infrastructure.config_loader import ConfigError, load_config
+
+    source = (Path(__file__).resolve().parents[2] / "config.example.yaml").read_text(encoding="utf-8")
+    (tmp_path / "config.yaml").write_text(
+        source.replace('timezone: "Europe/Rome"', 'timezone: "Europe/Roma"'), encoding="utf-8")
+    with pytest.raises(ConfigError, match="not an IANA zone"):
+        load_config(tmp_path)

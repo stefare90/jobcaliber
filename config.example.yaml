@@ -144,6 +144,7 @@ scraping:
 
 # 5. Automation schedule
 schedule:
+  timezone: "Europe/Rome"        # IANA zone: scrape_times and every displayed date use it
   scrape_times: ["08:00"]
   backup_time: "03:00"
 

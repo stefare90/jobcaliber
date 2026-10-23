@@ -265,9 +265,16 @@ sudo firewall-cmd --remove-rich-rule='rule family="ipv4" source address="192.168
   `{{search.exclude}}`; an unresolved placeholder fails at startup.
 - `penalties` — confidence multiplier per criterion when the answer is missing.
 - `notifications.telegram` — thresholds, quiet hours (used from the Telegram milestone).
+- `schedule` — `timezone` (IANA name, **required**: `Europe/Rome`, `UTC`, …), `scrape_times`
+  (`["08:00", "13:00"]`), `backup_time`, `max_attempts`.
 - `scraping` — boards, country, hours window, page size, per-board caps, job type.
 - `ai` — engines (`kind`, `api`, `base_url`, `model`, optional `api_key_env`, `headers`,
   `options`, `throttle_s`, `retry`) and the `scorer` role.
+
+**Time.** The database stores every timestamp in **UTC**; `scrape_times` are wall-clock times in
+`schedule.timezone`, and the web app and the CLI render UTC back into that same zone. Nothing
+depends on the machine's local timezone, so moving the database or the machine changes nothing.
+A wrong or missing `schedule.timezone` fails at startup with the expected format.
 
 **Secrets** never enter the config: engines name an environment variable (`api_key_env`) and
 `load_config()` first loads the gitignored `<repo>/.env`. A real environment variable always

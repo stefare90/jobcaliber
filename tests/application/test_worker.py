@@ -1,4 +1,5 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from jobcaliber.application.schedule import is_due, last_scheduled_time
 from jobcaliber.application.worker import Worker
@@ -20,6 +21,7 @@ criteria:
 notifications:
   telegram: {notify_threshold: 70, review_threshold: 60, min_confidence: 0.4}
 schedule:
+  timezone: "Europe/Rome"
   scrape_times: ["08:00", "13:00"]
   max_attempts: 3
 ai:
@@ -27,6 +29,9 @@ ai:
     rizzo: {kind: "decision", api: "systemone", base_url: "http://x", model: "m"}
   roles: {scorer: "rizzo"}
 """
+
+
+ROME = ZoneInfo("Europe/Rome")
 
 
 def make_config() -> AppConfig:
@@ -38,7 +43,7 @@ def make_worker(store, now="2026-10-21T08:05:00", runner=None):
     from pathlib import Path
     config = make_config()
     ctx = AppContext(root=Path("."), config_path=Path("config.yaml"), config=config,
-                     raw_yaml=YAML, store=store, engine="rizzo")
+                     raw_yaml=YAML, store=store, engine="rizzo", tz=ZoneInfo(config.schedule.timezone))
     return Worker(ctx, now=lambda: datetime.fromisoformat(now), runner=runner or fake_runner()), ctx
 
 
@@ -58,35 +63,55 @@ def run_tick(worker, postings=None, scorer=None):
 
 def test_last_scheduled_time_picks_the_most_recent():
     now = datetime(2026, 10, 21, 14, 30)
-    assert last_scheduled_time(["08:00", "13:00"], now) == datetime(2026, 10, 21, 13, 0)
+    assert last_scheduled_time(["08:00", "13:00"], now, ROME).replace(tzinfo=None) == datetime(2026, 10, 21, 13, 0)
 
 
 def test_last_scheduled_time_rolls_back_before_the_first_slot():
     now = datetime(2026, 10, 21, 6, 0)
-    assert last_scheduled_time(["08:00"], now) == datetime(2026, 10, 20, 8, 0)
+    assert last_scheduled_time(["08:00"], now, ROME).replace(tzinfo=None) == datetime(2026, 10, 20, 8, 0)
 
 
 def test_is_due_without_a_previous_run():
-    assert is_due(["08:00"], datetime(2026, 10, 21, 9, 0), None) is True
+    assert is_due(["08:00"], datetime(2026, 10, 21, 9, 0), None, ROME) is True
 
 
 def test_is_due_after_the_slot_but_not_twice():
     now = datetime(2026, 10, 21, 9, 0)
-    assert is_due(["08:00"], now, "2026-10-20 06:00:03") is True
-    assert is_due(["08:00"], now, "2026-10-21 06:00:03") is False
+    assert is_due(["08:00"], now, "2026-10-20 06:00:03", ROME) is True
+    assert is_due(["08:00"], now, "2026-10-21 06:00:03", ROME) is False
 
 
 def test_is_due_compares_a_utc_run_with_local_slots():
     """Regression: SQLite stores UTC, the schedule is local; a run just after the slot is not due."""
-    from datetime import timedelta, timezone
+    now = datetime(2026, 10, 23, 15, 0, tzinfo=ROME)
+    assert is_due(["13:00"], now, "2026-10-23 11:00:05", ROME) is False   # 13:00:05 local
+    assert is_due(["13:00"], now, "2026-10-23 09:00:00", ROME) is True    # 11:00 local
 
-    now = datetime(2026, 10, 23, 15, 0, tzinfo=timezone(timedelta(hours=2)))
-    assert is_due(["13:00"], now, "2026-10-23 11:00:05") is False    # 13:00:05 local
-    assert is_due(["13:00"], now, "2026-10-23 09:00:00") is True     # 11:00 local, before the slot
+
+def test_is_due_handles_the_winter_time_change():
+    """25 Oct 2026: 03:00 CEST becomes 02:00 CET. A run right after the slot is still not due."""
+    now = datetime(2026, 10, 25, 13, 5, tzinfo=ROME)          # 12:05 UTC
+    assert is_due(["13:00"], now, "2026-10-25 12:00:01", ROME) is False
+    assert is_due(["13:00"], now, "2026-10-25 11:00:00", ROME) is True
+
+
+def test_is_due_survives_a_slot_that_does_not_exist():
+    """29 Mar 2026: 02:30 does not exist in Europe/Rome; the slot must resolve, not crash."""
+    now = datetime(2026, 3, 29, 10, 0, tzinfo=ROME)
+    slot = last_scheduled_time(["02:30"], now, ROME)
+    assert slot is not None and slot.astimezone(ROME).hour in (1, 2, 3)
+    assert is_due(["02:30"], now, "2026-03-29 09:30:00", ROME) is False
+
+
+def test_a_second_slot_is_not_skipped_across_the_change():
+    """The morning slot after the winter change still fires at its local wall clock."""
+    now = datetime(2026, 10, 25, 8, 30, tzinfo=ROME)          # 07:30 UTC
+    assert is_due(["08:00"], now, "2026-10-24 06:00:00", ROME) is True
+    assert is_due(["08:00"], now, "2026-10-25 07:00:01", ROME) is False
 
 
 def test_is_due_is_false_when_no_time_is_configured():
-    assert is_due([], datetime(2026, 10, 21, 9, 0), None) is False
+    assert is_due([], datetime(2026, 10, 21, 9, 0), None, ROME) is False
 
 
 def test_tick_runs_the_schedule_once(tmp_path):

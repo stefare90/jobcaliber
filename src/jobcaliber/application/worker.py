@@ -53,7 +53,7 @@ class Worker:
         if run_id is None:
             last = store.last_scheduled_run()
             if not is_due(self.ctx.config.schedule.scrape_times, self.now(),
-                          last["started_at"] if last else None):
+                          last["started_at"] if last else None, self.ctx.tz):
                 return None
             run_id = store.start_run(config_v, engine, "schedule")
             trigger = "schedule"

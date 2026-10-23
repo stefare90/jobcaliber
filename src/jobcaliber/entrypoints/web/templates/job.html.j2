@@ -23,7 +23,7 @@
   <dt>Salary</dt><dd>{% if job.salary_min or job.salary_max %}{{ job.salary_min or '?' }}–{{ job.salary_max or '?' }}{% else %}—{% endif %}</dd>
   <dt>Board</dt><dd>{{ job.source }}</dd>
   <dt>Query</dt><dd>{{ job.query_term or '—' }} @ {{ job.query_location or '—' }}{% if job.query_remote %} (remote){% endif %}</dd>
-  <dt>Seen</dt><dd>{{ job.first_seen_at }} → {{ job.last_seen_at }}</dd>
+  <dt>Seen</dt><dd>{{ job.first_seen_at|localtime }} → {{ job.last_seen_at|localtime }}</dd>
   <dt>Original ad</dt><dd>{% if job.external_id.startswith('http') %}<a href="{{ job.external_id }}" target="_blank" rel="noopener">open ↗</a>{% else %}—{% endif %}</dd>
 </dl>
 

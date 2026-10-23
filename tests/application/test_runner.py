@@ -1,4 +1,5 @@
 import pytest
+from zoneinfo import ZoneInfo
 
 from jobcaliber.application.runner import run_once
 from jobcaliber.bootstrap import AppContext
@@ -10,6 +11,8 @@ YAML = """
 search:
   titles: ["Dev"]
   on_site_locations: ["Turin, Italy"]
+schedule:
+  timezone: "Europe/Rome"
 criteria:
   core_skills:
     min_threshold: 0.5
@@ -85,7 +88,8 @@ def store(tmp_path):
 
 def context(config, store, yaml_text=YAML, engine="rizzo") -> AppContext:
     return AppContext(root=Path("."), config_path=Path("config.yaml"), config=config,
-                      raw_yaml=yaml_text, store=store, engine=engine)
+                      raw_yaml=yaml_text, store=store, engine=engine,
+                      tz=ZoneInfo(config.schedule.timezone))
 
 
 def run(config, store, postings, scorer=None, yaml_text=YAML, engine="rizzo", fetcher=None, **kw):

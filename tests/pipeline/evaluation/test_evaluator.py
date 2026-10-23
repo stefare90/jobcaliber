@@ -38,6 +38,7 @@ def make_config(criteria=None, penalties=None, min_conf=0.55):
     criteria = criteria or criteria_default()
     return AppConfig.model_validate({
         "search": {"titles": ["Dev"], "on_site_locations": ["Turin, Italy"]},
+        "schedule": {"timezone": "UTC"},
         "criteria": {k: v.model_dump() for k, v in criteria.items()},
         "penalties": penalties or {},
         "notifications": {"telegram": {"min_confidence": min_conf}},

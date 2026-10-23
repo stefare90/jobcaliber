@@ -484,3 +484,25 @@ committing `config.yaml`.
   Tailscale as the authenticated alternative, and the warning that anyone on the network can
   write feedback and press *Run now*. Verified live: bound on `0.0.0.0:8870`, `/healthz` answers
   both on localhost and on `192.168.1.28`. Tests 201/201 green.
+- [x] Worker loop + engine preflight (2026-10-23) — every run failed with `ConnectError` because
+  rizzo was not running, and only *after* the full fetch (~28 min); on top of that the worker
+  started a new scheduled run at every poll. Root cause of the loop: `runs.started_at` is written
+  by SQLite in **UTC**, `is_due` compared it with a **local** `datetime.now()` (UTC+2), so every
+  run looked older than the slot. Fixes: `is_due` interprets the stored timestamp as UTC;
+  `AIClient.probe()` (TCP connect, shared by both transports) runs before `_collect`, raising
+  `EngineUnreachable` which is marked non-retryable; `requeue` clears `finished_at`.
+  Verified: engine down -> failed in **42 ms** (was 28 min); worker with `--poll 3` for 45 s ->
+  **1** run (was ~15); with rizzo up, a clean run scored 26 postings in 145 s. DB reset.
+- [x] Explicit timezone (2026-10-23) — the web printed stored UTC raw (`/runs` showed 08:56 while
+  the clock said 10:56), and the CLI did the same, so fixing only the web would have created two
+  truths. Instead of a bare `astimezone()` (which guessed the machine's zone) the zone is now
+  declared: `schedule.timezone` (IANA, **required**), validated in `config_loader` with a clear
+  message, resolved once in `AppContext.tz`. The DB keeps UTC; `scrape_times` are wall clock in
+  that zone; `is_due` compares UTC instants; `core/formatting.local_time` is the single formatter
+  used by the Jinja filter and the CLI. The formatter lives in `core/formatting.py`, not
+  `entrypoints/`: a helper placed in the top layer cannot be imported by anything else, and the
+  Telegram notifier (next milestone) would have re-implemented it — `AGENTS.md` now records this
+  as the one exception allowed in `core/`. Tests cover summer/winter offsets, the two DST
+  transitions, a nonexistent 02:30 slot, CLI/web agreement and the missing/invalid zone.
+  Live: `/runs` and `jobcaliber status` both show 11:01 for the 09:01 UTC run; the worker, after
+  the restart, created no run in 40 s with `--poll 5`. Tests 219.

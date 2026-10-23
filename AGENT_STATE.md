@@ -42,16 +42,20 @@ Entry points are the only place allowed to import everything.
    `gate: {accept: […]}`; `gate: {min_score: x}`).
 3. **Re-scoring key** = `UNIQUE(job_id, config_v, engine)`: same config+engine is a no-op, a new
    config or engine re-scores everything.
-4. **Config is content-addressed**: `config_versions(v, yaml, sha)`; a run reuses the version when
+4. **A run probes the engine before fetching**: `AIClient.probe()` (TCP connect) is called
+   before `_collect`, so a dead engine costs ~40 ms instead of a whole fetch (~28 min). That
+   failure is **not retried** (`RunOutcome.retryable = False`): retrying cannot fix a stopped
+   service, and the worker must not burn its 3 attempts on it.
+5. **Config is content-addressed**: `config_versions(v, yaml, sha)`; a run reuses the version when
    the file is unchanged, creates a new one when it changes.
-5. **Schema changes are manual**: `Store` *creates* an empty DB, never alters an existing one;
+6. **Schema changes are manual**: `Store` *creates* an empty DB, never alters an existing one;
    `jobcaliber db migrate` applies migrations (backup + one transaction per step). `db check`
    diffs the live schema against `schema.sql`.
-6. **The web is read-mostly**: it may write only `feedback` (upsert) and `runs(status='requested')`
+7. **The web is read-mostly**: it may write only `feedback` (upsert) and `runs(status='requested')`
    — enforced by a test on the allowed `Store` methods.
-7. **No criterion name, threshold or heuristic is hardcoded** anywhere (web, evaluator, fetch).
-8. **English only** in the repo (code, docs, UI strings, commit messages). Chat may be Italian.
-9. **Nothing is implemented before the user agrees** (`AGENTS.md` §0, absolute).
+8. **No criterion name, threshold or heuristic is hardcoded** anywhere (web, evaluator, fetch).
+9. **English only** in the repo (code, docs, UI strings, commit messages). Chat may be Italian.
+10. **Nothing is implemented before the user agrees** (`AGENTS.md` §0, absolute).
 
 ## Commands
 
@@ -73,12 +77,13 @@ header). Default `roles: {scorer: rizzo}`.
 
 ## Current data (dev DB `data/jobs.db`, gitignored)
 
-- 894 jobs, 216 evaluations, 3 runs, `config_v 1`.
-- Decisions: **3 pass, 30 review, 183 drop** (216 evaluated).
+- **Reset on 2026-10-23** (the pre-reset file is in `/tmp/jobs.db.before-reset-*.db`): the first
+  clean run scored 26 postings (18 drop, 8 review) in 145 s with rizzo.
 - Criteria: `core_skills`, `tools`, `role_fit` (min .5 / apply .67), `pay` (apply .75),
   `location` (choice gate accept accepted/rejected/unknown), `applicable` (bool gate, `in_table:
   false`), `contract_ok` (bool gate).
-- Thresholds: notify 70, review 60, min confidence 0.55. Schedule 08:00/13:00/19:00, retries 3.
+- Thresholds: notify 70, review 60, min confidence 0.55. Schedule 08:00/13:00/19:00 in
+  `Europe/Rome`, retries 3.
 - Search: 4 titles × `Sardinia, Italy` (on-site) + `Italy` (remote).
 
 ## Web (implemented, verified in a browser)
@@ -95,6 +100,13 @@ header). Default `roles: {scorer: rizzo}`.
 
 ## Traps learned (do not re-discover)
 
+- **Time**: the DB is UTC (`datetime('now')`), `schedule.timezone` (IANA, required) defines the
+  wall clock of `scrape_times` and of every rendered date; `AppContext.tz` is resolved once in
+  `bootstrap`, `is_due` compares UTC instants, `core/formatting.local_time` is the only formatter
+  (web filter + CLI, and the notifier later). Never call a bare `astimezone()`.
+- **SQLite `datetime('now')` is UTC, the schedule is local**: comparing them raw made every
+  scheduled run look two hours old, so the worker started a new one on every poll. `is_due` now
+  interprets the stored value as UTC and builds the slots in `schedule.timezone`.
 - **YAML 1.1**: bare `yes`/`no` are booleans — quote option keys and label verdicts.
 - **HTML hrefs in tests are escaped** (`&amp;`): `html.unescape` before following them.
 - The System One wire **rejects extra fields** (`missing_level`/`missing_choice` stay in config).

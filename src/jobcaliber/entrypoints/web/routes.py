@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from jobcaliber.bootstrap import AppContext
+from jobcaliber.core.formatting import DEFAULT_FORMAT, local_time
 from jobcaliber.entrypoints.web.readmodels import job_detail, job_table
 
 DECISIONS = ("pass", "review", "drop")
@@ -157,6 +158,7 @@ def create_app(ctx: AppContext | None = None) -> FastAPI:
         loader=FileSystemLoader(str(HERE / "templates")),
         autoescape=select_autoescape(enabled_extensions=("html", "j2", "htm", "xml")),
     )
+    env.filters["localtime"] = lambda value, fmt=DEFAULT_FORMAT: local_time(value, ctx.tz, fmt)
     templates = Jinja2Templates(env=env)
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 

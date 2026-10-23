@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from jobcaliber.core.config import AppConfig
 from jobcaliber.infrastructure.config_loader import load_config
@@ -18,6 +19,7 @@ class AppContext:
     raw_yaml: str
     store: Store
     engine: str
+    tz: ZoneInfo
 
     def scorer(self, engine: str | None = None):
         name = engine or self.engine
@@ -38,6 +40,7 @@ def build_context(root: Path, engine: str | None = None, store: Store | None = N
         raw_yaml=config_path.read_text(encoding="utf-8"),
         store=store or Store(_db_path(root, config)),
         engine=name,
+        tz=ZoneInfo(config.schedule.timezone),
     )
 
 

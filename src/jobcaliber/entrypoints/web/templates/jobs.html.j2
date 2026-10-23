@@ -24,7 +24,7 @@
           <option value="all" {% if filters.run == 'all' %}selected{% endif %}>every run</option>
           {% for run in runs %}
             <option value="{{ run.id }}" {% if filters.run == run.id|string %}selected{% endif %}>
-              {{ run.started_at }} · {{ run.status }} · {{ run.new }} new
+              {{ run.started_at|localtime }} · {{ run.status }} · {{ run.new }} new
             </option>
           {% endfor %}
         </select>
@@ -157,8 +157,8 @@
       {% if 'salary' in visible %}
         <td>{% if job.salary_min or job.salary_max %}{{ job.salary_min or '?' }}–{{ job.salary_max or '?' }}{% else %}—{% endif %}</td>
       {% endif %}
-      {% if 'last_seen' in visible %}<td><small>{{ job.last_seen_at or '—' }}</small></td>{% endif %}
-      {% if 'run' in visible %}<td><small>{{ job.run_started_at or '—' }}</small></td>{% endif %}
+      {% if 'last_seen' in visible %}<td><small>{{ job.last_seen_at|localtime }}</small></td>{% endif %}
+      {% if 'run' in visible %}<td><small>{{ job.run_started_at|localtime }}</small></td>{% endif %}
       {% if 'feedback' in visible %}<td>{% if row.feedback == 'good' %}👍{% elif row.feedback == 'bad' %}👎{% else %}–{% endif %}</td>{% endif %}
     </tr>
   {% else %}

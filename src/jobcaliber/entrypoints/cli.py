@@ -8,6 +8,7 @@ from pathlib import Path
 
 from jobcaliber.application.runner import run_once
 from jobcaliber.bootstrap import build_context
+from jobcaliber.core.formatting import duration_text, local_time
 from jobcaliber.infrastructure.config_loader import load_config
 from jobcaliber.infrastructure.database import SCHEMA_VERSION, migrate, schema_version
 from jobcaliber.infrastructure.database import SCHEMA_PATH, schema_objects, table_count
@@ -42,12 +43,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         print("no runs yet")
         return 0
     print(
-        f"run {last['id']} · {last['started_at']} · {last['status']} · trigger {last['trigger']} "
+        f"run {last['id']} · {local_time(last['started_at'], ctx.tz)} · {last['status']} "
+        f"· trigger {last['trigger']} "
         f"· engine {last['engine']} · config_v {last['config_v']}"
     )
     print(
         f"fetched {last['fetched']} · usable {last['usable']} · new {last['new']} "
-        f"· scored {last['scored']} · {last['duration_ms']} ms"
+        f"· scored {last['scored']} · {duration_text(last['duration_ms'])}"
     )
     if last["error"]:
         print(f"error: {last['error']}")
