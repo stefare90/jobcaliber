@@ -151,12 +151,14 @@ def test_load_config_prefers_the_personal_profile_over_the_example(tmp_path):
     profile_text = yaml.safe_dump(profile, sort_keys=False)
     runtime_text = yaml.safe_dump(runtime, sort_keys=False)
 
-    (tmp_path / "profile.example.yaml").write_text(profile_text, encoding="utf-8")
-    (tmp_path / "settings.example.yaml").write_text(runtime_text, encoding="utf-8")
+    folder = tmp_path / "config"
+    folder.mkdir()
+    (folder / "profile.example.yaml").write_text(profile_text, encoding="utf-8")
+    (folder / "settings.example.yaml").write_text(runtime_text, encoding="utf-8")
     path, _ = load_config(tmp_path)
     assert path.name == "profile.example.yaml"
 
-    (tmp_path / "profile.yaml").write_text(profile_text, encoding="utf-8")
+    (folder / "profile.yaml").write_text(profile_text, encoding="utf-8")
     path, _ = load_config(tmp_path)
     assert path.name == "profile.yaml"
 
@@ -175,10 +177,11 @@ def test_load_config_rejects_an_unknown_zone(tmp_path):
     from jobcaliber.infrastructure.config_loader import ConfigError, load_config
 
     root = Path(__file__).resolve().parents[2]
-    (tmp_path / "profile.yaml").write_text(
-        (root / "profile.example.yaml").read_text(encoding="utf-8"), encoding="utf-8")
-    (tmp_path / "settings.yaml").write_text(
-        (root / "settings.example.yaml").read_text(encoding="utf-8").replace(
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "profile.yaml").write_text(
+        (root / "config" / "profile.example.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "config" / "settings.yaml").write_text(
+        (root / "config" / "settings.example.yaml").read_text(encoding="utf-8").replace(
             'timezone: Europe/Rome', 'timezone: Europe/Roma'), encoding="utf-8")
     with pytest.raises(ConfigError, match="not an IANA zone"):
         load_config(tmp_path)
@@ -187,11 +190,13 @@ def test_load_config_rejects_an_unknown_zone(tmp_path):
 def test_a_key_in_both_files_is_rejected(tmp_path):
     from jobcaliber.infrastructure.config_loader import ConfigError, load_config
 
-    (tmp_path / "profile.yaml").write_text("search: {titles: [Dev], on_site_locations: [X]}\n"
+    (tmp_path / "config").mkdir()
+
+    (tmp_path / "config" / "profile.yaml").write_text("search: {titles: [Dev], on_site_locations: [X]}\n"
                                            "criteria: {core: {min_threshold: 0.5, question: {type: score, "
                                            "instructions: '?', levels: [a, b], missing: 0}}}\n"
                                            "scraping: {}\n", encoding="utf-8")
-    (tmp_path / "settings.yaml").write_text("scraping: {boards: [linkedin]}\n"
+    (tmp_path / "config" / "settings.yaml").write_text("scraping: {boards: [linkedin]}\n"
                                             'schedule: {timezone: "Europe/Rome"}\n', encoding="utf-8")
     with pytest.raises(ConfigError, match="declared in both"):
         load_config(tmp_path)
@@ -200,7 +205,9 @@ def test_a_key_in_both_files_is_rejected(tmp_path):
 def test_missing_settings_file_fails_fast(tmp_path):
     from jobcaliber.infrastructure.config_loader import ConfigError, load_config
 
-    (tmp_path / "profile.yaml").write_text("search: {titles: [Dev], on_site_locations: [X]}\n"
+    (tmp_path / "config").mkdir()
+
+    (tmp_path / "config" / "profile.yaml").write_text("search: {titles: [Dev], on_site_locations: [X]}\n"
                                            "criteria: {core: {min_threshold: 0.5, question: {type: score, "
                                            "instructions: '?', levels: [a, b], missing: 0}}}\n", encoding="utf-8")
     with pytest.raises(ConfigError, match="no settings file"):
@@ -224,3 +231,15 @@ def test_the_penalties_block_is_gone():
     }
     with pytest.raises(ValidationError, match="penalties"):
         AppConfig.model_validate({**base, "penalties": {"core": 0.8}})
+
+
+def test_files_left_in_the_root_are_ignored(tmp_path):
+    """Only config/ counts: a stray copy at the root must not be picked up."""
+    from jobcaliber.infrastructure.config_loader import ConfigError, load_config
+
+    root = Path(__file__).resolve().parents[2]
+    for name in ("profile.yaml", "settings.yaml"):
+        (tmp_path / name).write_text((root / "config" / name.replace(".yaml", ".example.yaml"))
+                                     .read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(ConfigError, match="no profile file"):
+        load_config(tmp_path)

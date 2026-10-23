@@ -7,8 +7,10 @@ data/*.db*
 data/*.html
 data/raw/
 config.yaml
-profile.yaml
-settings.yaml
+/profile.yaml
+/settings.yaml
+/config/profile.yaml
+/config/settings.yaml
 .uv/
 .pytest_cache/
 .env

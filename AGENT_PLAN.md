@@ -527,3 +527,8 @@ committing `config.yaml`.
   `notifications.base_url` + `notifications.telegram {enabled, chat_id, token_env, max_offers}`.
   Real delivery verified against `@jobcaliber_bot` (chat 657083271): 5 pass postings sent.
   Tests 235.
+- [x] Config files moved under `config/` (2026-10-23) — `config/profile.yaml`,
+  `config/settings.yaml` and their examples; `.env`, `data/` and `prompts/` stay where they are.
+  Only `config_loader` changed (`CONFIG_DIR`, anchored `.gitignore` patterns), plus a test that a
+  stray copy at the repository root is **not** picked up. Moving the files does not re-score:
+  the version key is the profile *content*, not its path. Tests 236.

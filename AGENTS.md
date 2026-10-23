@@ -123,13 +123,13 @@ because a helper placed in `entrypoints/` cannot be imported by anything else:
   overrides any default. No prompt text is hardcoded in Python.
 
 ### D. Configuration Discipline
-- Personal configuration lives in two gitignored files: `profile.yaml` (search inputs, evaluation
+- Personal configuration lives in two gitignored files under `config/`: `profile.yaml` (search inputs, evaluation
   rules, criteria — **any change re-scores**) and `settings.yaml` (scraping, schedule,
-  notifications, ai, paths — **never re-scores**). Templates: `profile.example.yaml`,
-  `settings.example.yaml`. The split *is* the versioning rule: evaluations are keyed by the
+  notifications, ai, paths — **never re-scores**). Templates: `config/profile.example.yaml`,
+  `config/settings.example.yaml`. The split *is* the versioning rule: evaluations are keyed by the
   profile content (+ `RUBRIC_VERSION` from the code), never by the settings.
 - No hardcoded parameters, thresholds, or heuristics in source code.
-- Secret values never enter `profile.yaml`/`settings.yaml`: engines declare `api_key_env` and
+- Secret values never enter `config/*.yaml`: engines declare `api_key_env` and
   `load_config()` loads the gitignored `<repo>/.env` (`chmod 600`) into the process
   environment first. A real environment variable always wins over the file
   (`os.environ.setdefault`), so systemd `EnvironmentFile` and CI secrets still work.

@@ -47,7 +47,7 @@ Entry points are the only place allowed to import everything.
    failure is **not retried** (`RunOutcome.retryable = False`): retrying cannot fix a stopped
    service, and the worker must not burn its 3 attempts on it.
 5. **Config split by cost**: `profile.yaml` (search + evaluation + criteria) keys the evaluations
-   (`config_versions(v, yaml, sha)` over the profile text + `RUBRIC_VERSION`); `settings.yaml`
+   (`config_versions(v, yaml, sha)` over the profile text + `RUBRIC_VERSION`); `config/settings.yaml`
    (scraping, schedule, notifications, ai, db_path) never re-scores. A key declared in both files
    is rejected. Same content → same version; new profile → new version.
 6. **Schema changes are manual**: `Store` *creates* an empty DB, never alters an existing one;
@@ -128,7 +128,7 @@ header). Default `roles: {scorer: rizzo}`.
 `infrastructure/notify/telegram.py` (httpx, no framework): one digest per run with every new
 `pass` posting, ad link + `/jobs?decisions=pass&run=<id>`; 10 offers then "…and N more"; HTML
 escaped; 4096-char cap; `notified_at` for idempotency; a delivery error never fails the run.
-Bot `@jobcaliber_bot`, chat id in gitignored `settings.yaml`, token in `.env`.
+Bot `@jobcaliber_bot`, chat id in gitignored `config/settings.yaml`, token in `.env`.
 
 ## Next steps (agreed, not started)
 

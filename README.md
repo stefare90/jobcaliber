@@ -66,8 +66,8 @@ the command line; the web app and the worker are next.
 
 ## The scoring model
 
-`profile.yaml` holds the search inputs, the evaluation rules and the criteria;
-`settings.yaml` holds everything about how the system runs:
+`config/profile.yaml` holds the search inputs, the evaluation rules and the criteria;
+`config/settings.yaml` holds everything about how the system runs:
 
 ```yaml
 search:                      # the only bound part: it drives the boards
@@ -149,8 +149,8 @@ git clone https://github.com/stefare90/jobcaliber && cd jobcaliber
 uv sync --frozen
 
 # 3. personal config + secrets (both gitignored)
-cp profile.example.yaml profile.yaml
-cp settings.example.yaml settings.yaml
+cp config/profile.example.yaml config/profile.yaml
+cp config/settings.example.yaml config/settings.yaml
 cp .env.example .env && chmod 600 .env     # API keys, if your engine needs one
 
 # 4. sanity checks
@@ -260,11 +260,11 @@ sudo firewall-cmd --remove-rich-rule='rule family="ipv4" source address="192.168
 
 Two files, split by what a change *costs*:
 
-> **`profile.yaml` answers “what am I looking for and how do I judge it”. Any change to it
-> re-scores every posting. `settings.yaml` answers “how does the system run”: changing it never
+> **`config/profile.yaml` answers “what am I looking for and how do I judge it”. Any change to it
+> re-scores every posting. `config/settings.yaml` answers “how does the system run”: changing it never
 > re-scores anything.**
 
-### `profile.yaml`
+### `config/profile.yaml`
 
 - `search` — `titles`, `on_site_locations`, `remote_locations`, `exclude` (shown to the
   `applicable` criterion: protected-category postings and similar) and `job_type` (`fulltime`,
@@ -277,7 +277,7 @@ Two files, split by what a change *costs*:
   `{{search.titles}}`, `{{search.on_site_locations}}`, `{{search.remote_locations}}`,
   `{{search.exclude}}`; an unresolved placeholder fails at startup.
 
-### `settings.yaml`
+### `config/settings.yaml`
 
 - `scraping` — `boards`, `page_size`, per-board `board_max_results`, and `board_country`
   (which Indeed site to query; LinkedIn ignores it).
@@ -289,7 +289,7 @@ Two files, split by what a change *costs*:
   `options`, `throttle_s`, `retry`) and the `scorer` role.
 - `db_path`.
 
-Evaluations are keyed by the **content of `profile.yaml`** (plus a rubric version bumped in code
+Evaluations are keyed by the **content of `config/profile.yaml`** (plus a rubric version bumped in code
 when the questions' projection changes), so tweaking a page size, a scrape time or a token never
 invalidates what the model already answered.
 
@@ -356,7 +356,7 @@ the lessons learned; `AGENT_PLAN.md` is the agent's build log.
 
 Postings, criteria and verdicts stay on your machine. Outside calls go only to the engine you
 configure. No captcha is stored, no LinkedIn login, no open ports: the web app will listen on
-localhost. `profile.yaml`, `settings.yaml`, `.env` and `data/` are gitignored and never pushed.
+localhost. `config/profile.yaml`, `config/settings.yaml`, `.env` and `data/` are gitignored and never pushed.
 
 ## License
 

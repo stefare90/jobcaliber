@@ -53,8 +53,10 @@ def _split(root):
     import yaml as pyyaml
     data = pyyaml.safe_load(YAML)
     profile = {k: data[k] for k in ("search", "criteria") if k in data}
-    (root / "profile.yaml").write_text(pyyaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
-    (root / "settings.yaml").write_text(SETTINGS, encoding="utf-8")
+    (root / "config").mkdir(exist_ok=True)
+    (root / "config" / "profile.yaml").write_text(pyyaml.safe_dump(profile, sort_keys=False),
+                                                  encoding="utf-8")
+    (root / "config" / "settings.yaml").write_text(SETTINGS, encoding="utf-8")
 
 
 def make_config() -> AppConfig:
@@ -235,9 +237,9 @@ def test_config_is_reloaded_when_the_file_changes(tmp_path):
 
     assert worker.refresh(progress=lambda *_: None).config.schedule.scrape_times == ["08:00", "13:00"]
 
-    (root / "settings.yaml").write_text(SETTINGS.replace('["08:00", "13:00"]', '["09:30"]'),
-                                        encoding="utf-8")
-    os.utime(root / "settings.yaml", (0, 0))        # force a different mtime
+    (root / "config" / "settings.yaml").write_text(
+        SETTINGS.replace('["08:00", "13:00"]', '["09:30"]'), encoding="utf-8")
+    os.utime(root / "config" / "settings.yaml", (0, 0))   # force a different mtime
     refreshed = worker.refresh(progress=lambda *_: None)
     assert refreshed.config.schedule.scrape_times == ["09:30"]
     assert refreshed.store is ctx.store             # the database connection is kept

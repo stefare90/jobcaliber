@@ -56,8 +56,10 @@ def test_load_env_without_file_is_a_noop(tmp_path):
 def test_load_config_reads_root_env_file(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
     (tmp_path / ENV_FILENAME).write_text("OPENCODE_API_KEY=oc_sk_from_dotenv\n", encoding="utf-8")
+    (tmp_path / "config").mkdir()
     for name in ("profile.example.yaml", "settings.example.yaml"):
-        (tmp_path / name).write_text((ROOT / name).read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "config" / name).write_text(
+            (ROOT / "config" / name).read_text(encoding="utf-8"), encoding="utf-8")
 
     _, cfg = load_config(tmp_path)
 

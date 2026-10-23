@@ -1,4 +1,4 @@
-"""Read profile.yaml + settings.yaml (or their examples) and the .env file.
+"""Read config/profile.yaml + config/settings.yaml (or their examples) and the .env file.
 
 `profile.yaml` is what changes the model's answers (search inputs + evaluation rules + criteria);
 `settings.yaml` is everything else (scraping, schedule, notifications, ai, paths). Keeping them
@@ -14,6 +14,7 @@ import yaml
 from jobcaliber.core.config import AppConfig
 from jobcaliber.infrastructure.env import load_env
 
+CONFIG_DIR = "config"
 PROFILE_FILENAMES = ("profile.yaml", "profile.example.yaml")
 SETTINGS_FILENAMES = ("settings.yaml", "settings.example.yaml")
 
@@ -25,7 +26,8 @@ class ConfigError(RuntimeError):
 def load_config(root: Path) -> tuple[Path, AppConfig]:
     """Merge both files into one typed config; returns the profile path that keys evaluations."""
     load_env(root)
-    profile_path = _pick(root, PROFILE_FILENAMES, "profile")
+    folder = root / CONFIG_DIR
+    profile_path = _pick(folder, PROFILE_FILENAMES, "profile")
     profile, runtime = _read(profile_path), _read(settings_path(root))
     overlap = sorted(set(profile) & set(runtime))
     if overlap:
@@ -39,7 +41,7 @@ def load_config(root: Path) -> tuple[Path, AppConfig]:
 
 
 def settings_path(root: Path) -> Path:
-    return _pick(root, SETTINGS_FILENAMES, "settings")
+    return _pick(root / CONFIG_DIR, SETTINGS_FILENAMES, "settings")
 
 
 def _pick(root: Path, names: tuple[str, ...], what: str) -> Path:
@@ -47,7 +49,7 @@ def _pick(root: Path, names: tuple[str, ...], what: str) -> Path:
         candidate = root / name
         if candidate.exists():
             return candidate
-    raise ConfigError(f"no {what} file found in {root}: expected one of {list(names)}")
+    raise ConfigError(f"no {what} file found in {root}: expected one of {[str(root / n) for n in names]}")
 
 
 def _read(path: Path) -> dict:
