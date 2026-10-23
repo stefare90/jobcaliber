@@ -203,7 +203,8 @@ def test_migration_reproduces_schema_sql_exactly(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "MIGRATIONS", [
         importlib.import_module(
             "jobcaliber.infrastructure.database.migrations.m002_runs_requested_status"
-        )
+        ),
+        importlib.import_module("jobcaliber.infrastructure.database.migrations.m004_applications"),
     ])
     module.migrate(path, out=lambda *_: None)
 
@@ -229,7 +230,8 @@ def test_migrated_runs_accepts_the_new_status(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "MIGRATIONS", [
         importlib.import_module(
             "jobcaliber.infrastructure.database.migrations.m002_runs_requested_status"
-        )
+        ),
+        importlib.import_module("jobcaliber.infrastructure.database.migrations.m004_applications"),
     ])
     module.migrate(path, out=lambda *_: None)
 

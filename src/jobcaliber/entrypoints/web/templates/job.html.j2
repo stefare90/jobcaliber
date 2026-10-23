@@ -47,11 +47,17 @@
   </tbody>
 </table>
 
-<form method="post" action="/jobs/{{ job.id }}/feedback" class="feedback">
-  <span>Would you apply to this one?</span>
-  <button type="submit" name="verdict" value="good" class="{{ 'chosen' if detail.feedback == 'good' else '' }}">👍 Yes</button>
-  <button type="submit" name="verdict" value="bad" class="{{ 'chosen' if detail.feedback == 'bad' else '' }}">👎 No</button>
-  {% if detail.feedback %}<small>saved: {{ detail.feedback }}</small>{% endif %}
+<form method="post" action="/jobs/{{ job.id }}/application" class="feedback">
+  <input type="hidden" name="back" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+  <span>Your call:</span>
+  {% set current = detail.application.state if detail.application else 'none' %}
+  <button type="submit" name="state" value="applied" class="{{ 'chosen' if current == 'applied' else '' }}">✅ Applied</button>
+  <button type="submit" name="state" value="planned" class="{{ 'chosen' if current == 'planned' else '' }}">📌 Will apply</button>
+  <button type="submit" name="state" value="skipped" class="{{ 'chosen' if current == 'skipped' else '' }}">🙅 Not interested</button>
+  {% if detail.application %}
+    <button type="submit" name="state" value="none" class="clear">undo</button>
+    <small>{{ detail.application.state }} · {{ detail.application.updated_at|localtime }}</small>
+  {% endif %}
 </form>
 {% endif %}
 

@@ -267,3 +267,17 @@ def test_a_delivery_failure_keeps_the_run_ok_and_the_offer_unnotified(store):
     with store.connect() as conn:
         notified = conn.execute("SELECT COUNT(*) FROM jobs WHERE notified_at IS NOT NULL").fetchone()[0]
     assert notified == 0
+
+
+def test_a_marked_posting_is_not_notified(store):
+    """If the user already applied to (or dismissed) an offer, Telegram must not bring it back."""
+    notifier = FakeNotifier()
+    config = make_config()
+    first = run(config, store, [posting(1)], notifier=FakeNotifier())
+    assert first.decisions["pass"] == 1
+    job_id = store.jobs(decisions=["pass"])[0].id
+    store.save_application(job_id, "applied")
+
+    second = run(config, store, [posting(1)], engine="other", notifier=notifier)
+    assert second.decisions["pass"] == 1          # scored again for the new engine
+    assert notifier.rows == []                    # but not notified

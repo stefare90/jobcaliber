@@ -20,11 +20,12 @@ class JobTable:
 
 def job_table(store: Store, *, decisions=None, source=None, text=None, location=None,
               criterion=None, op=None, value=None, option=None, exclude_missing=False,
-              run_id=None, columns=None, sort="score_total", direction="desc",
+              run_id=None, state="all", columns=None, sort="score_total", direction="desc",
               limit=50, offset=0) -> JobTable:
     total = store.count_jobs(
         decisions=decisions, source=source, text=text, location=location, criterion=criterion,
         op=op, value=value, option=option, exclude_missing=exclude_missing, run_id=run_id,
+        state=state,
     )
     # An offset past the last page would render an empty table: clamp to the last page.
     if total and offset >= total:
@@ -32,19 +33,19 @@ def job_table(store: Store, *, decisions=None, source=None, text=None, location=
     rows = store.jobs(
         decisions=decisions, source=source, text=text, location=location, criterion=criterion,
         op=op, value=value, option=option, exclude_missing=exclude_missing, run_id=run_id,
-        sort=sort, direction=direction, limit=limit, offset=offset,
+        state=state, sort=sort, direction=direction, limit=limit, offset=offset,
     )
     evaluation_ids = [row.evaluation_id for row in rows]
     answers = store.answers_for(evaluation_ids)
     missing_by_eval = store.missing_for(evaluation_ids)
-    feedback = store.feedback_for(evaluation_ids)
+    applications = store.applications_for([row.id for row in rows])
     return JobTable(
         rows=[
             {
                 "job": row,
                 "answers": answers.get(row.evaluation_id, {}),
                 "missing": missing_by_eval.get(row.evaluation_id, set()),
-                "feedback": feedback.get(row.evaluation_id),
+                "application": applications.get(row.id),
             }
             for row in rows
         ],
@@ -84,12 +85,13 @@ def job_detail(store: Store, job_id: int) -> dict | None:
     job = {**job, "description": description, "description_html": render_markdown(description)}
     evaluation = store.latest_evaluation(job_id)
     if evaluation is None:
-        return {"job": job, "evaluation": None, "answers": {}, "missing": set(), "feedback": None}
+        return {"job": job, "evaluation": None, "answers": {}, "missing": set(),
+                "application": store.application(job_id)}
     evaluation_id = evaluation["id"]
     return {
         "job": job,
         "evaluation": evaluation,
         "answers": store.answers_for([evaluation_id]).get(evaluation_id, {}),
         "missing": store.missing_for([evaluation_id]).get(evaluation_id, set()),
-        "feedback": store.feedback_for([evaluation_id]).get(evaluation_id),
+        "application": store.application(job_id),
     }

@@ -5,10 +5,13 @@ equal `SCHEMA_VERSION`: this is asserted on import so a forgotten bump fails imm
 """
 from __future__ import annotations
 
-from jobcaliber.infrastructure.database.migrations import m002_runs_requested_status
+from jobcaliber.infrastructure.database.migrations import (
+    m002_runs_requested_status,
+    m004_applications,
+)
 from jobcaliber.infrastructure.database.schema_version import SCHEMA_VERSION
 
-MIGRATIONS = [m002_runs_requested_status]
+MIGRATIONS = [m002_runs_requested_status, m004_applications]
 
 versions = [module.VERSION for module in MIGRATIONS]
 assert versions == sorted(set(versions)), f"migrations must be unique and ordered, got {versions}"

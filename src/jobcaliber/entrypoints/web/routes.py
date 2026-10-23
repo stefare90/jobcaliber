@@ -1,11 +1,13 @@
 """HTTP surface: parse the query string, ask the read models, render. No business logic."""
 from __future__ import annotations
 
+import csv
+import io
 from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -13,10 +15,11 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from jobcaliber.bootstrap import AppContext
 from jobcaliber.core.formatting import DEFAULT_FORMAT, local_time
 from jobcaliber.entrypoints.web.readmodels import job_detail, job_table
+from jobcaliber.infrastructure.database import APPLICATION_STATES
 
 DECISIONS = ("pass", "review", "drop")
 DEFAULT_DECISIONS = ("pass", "review")
-OPTIONAL_COLUMNS = ("salary", "last_seen", "run", "feedback")
+OPTIONAL_COLUMNS = ("salary", "last_seen", "run", "status")
 OPERATORS = {"lt": "<", "le": "≤", "gt": ">", "ge": "≥", "eq": "="}
 SORTS = ("score_total", "confidence", "decision", "title", "company", "source",
          "first_seen_at", "last_seen_at", "run_started_at")
@@ -28,7 +31,7 @@ def default_filters() -> dict:
     return {
         "decisions": list(DEFAULT_DECISIONS), "source": None, "text": None, "criterion": None,
         "op": None, "value": None, "option": None, "criterion_type": None,
-        "exclude_missing": False, "run": "all", "run_id": None,
+        "exclude_missing": False, "run": "all", "run_id": None, "state": "all",
         "columns": set(), "selectable_columns": [], "criterion_columns": [], "criterion_names": [],
         "sort": "score_total", "dir": "desc", "limit": 50, "offset": 0,
     }
@@ -100,13 +103,16 @@ def parse_filters(request: Request, ctx: AppContext) -> dict:
     direction = "asc" if params.get("dir") == "asc" else "desc"
     run = params.get("run") or "all"
     run_id = int(run) if run.isdigit() else None
+    state = params.get("state") or "all"
+    if state not in (*APPLICATION_STATES, "none", "all"):
+        state = "all"
     return {
         "decisions": decisions, "source": source,
         "text": (params.get("q") or "").strip()[:80] or None,
         "location": (params.get("location") or "").strip()[:80] or None,
         "criterion": criterion, "criterion_type": criterion_type, "op": op, "value": value,
         "option": option, "exclude_missing": exclude_missing, "run": run, "run_id": run_id,
-        "sort": sort, "dir": direction,
+        "state": state, "sort": sort, "dir": direction,
         "columns": visible, "selectable_columns": selectable, "criterion_names": known_columns,
         "criterion_columns": [c for c in known_columns if c in visible],
         "limit": _int(params.get("limit"), 50, 10, 200), "offset": _int(params.get("offset"), 0, 0, 100000),
@@ -125,7 +131,8 @@ def jobs_url(filters: dict, **overrides) -> str:
                   else (merged.get("option") or "")),
         "exclude_missing": "1" if merged["exclude_missing"] else "",
         "cols": ",".join(sorted(merged["columns"])),
-        "run": merged["run"], "sort": merged["sort"], "dir": merged["dir"],
+        "run": merged["run"], "state": merged.get("state", "all"),
+        "sort": merged["sort"], "dir": merged["dir"],
         "limit": str(merged["limit"]), "offset": str(merged["offset"]),
     }
     return "/jobs?" + urlencode({key: val for key, val in query.items() if val != ""})
@@ -178,6 +185,7 @@ def create_app(ctx: AppContext | None = None) -> FastAPI:
             criterion=filters["criterion"], op=filters["op"],
             value=filters["value"], option=filters["option"],
             exclude_missing=filters["exclude_missing"], run_id=filters["run_id"],
+            state=filters["state"],
             columns=filters["criterion_columns"], sort=filters["sort"], direction=filters["dir"],
             limit=filters["limit"], offset=filters["offset"],
         )
@@ -199,20 +207,53 @@ def create_app(ctx: AppContext | None = None) -> FastAPI:
         return render(request, "job.html.j2", detail=detail, filters=filters,
                       jobs_url=jobs_url, jobs_href=jobs_url(filters))
 
-    @app.post("/jobs/{job_id}/feedback")
-    def submit_feedback(job_id: int, verdict: str = Form(...)) -> RedirectResponse:
-        if verdict not in ("good", "bad"):
-            raise HTTPException(status_code=400, detail="verdict must be good or bad")
-        evaluation = ctx.store.latest_evaluation(job_id)
-        if evaluation is None:
-            raise HTTPException(status_code=404, detail="job has no evaluation yet")
-        ctx.store.save_feedback(evaluation["id"], verdict)
+    @app.post("/jobs/{job_id}/application")
+    def submit_application(job_id: int, state: str = Form(...),
+                           back: str = Form("")) -> RedirectResponse:
+        if state not in (*APPLICATION_STATES, "none"):
+            raise HTTPException(status_code=400, detail=f"unknown state {state!r}")
+        if ctx.store.job(job_id) is None:
+            raise HTTPException(status_code=404, detail="unknown job")
+        if state == "none":
+            ctx.store.clear_application(job_id)
+        else:
+            ctx.store.save_application(job_id, state)
+        return RedirectResponse(back or "/jobs", status_code=303)
         return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
     @app.post("/run")
     def request_run() -> RedirectResponse:
         ctx.store.request_run("manual")
         return RedirectResponse("/runs", status_code=303)
+
+    @app.get("/applications", response_class=HTMLResponse)
+    def list_applications(request: Request, state: str = "all") -> HTMLResponse:
+        wanted = None if state in ("all", "") else state
+        rows = ctx.store.applications(wanted)
+        jobs = {job_id: ctx.store.job(job_id) for job_id in [row.job_id for row in rows]}
+        return render(request, "applications.html.j2",
+                      rows=[{"application": row, "job": jobs.get(row.job_id)} for row in rows],
+                      state=state, total=len(rows))
+
+    @app.get("/applications.csv", response_class=PlainTextResponse)
+    def export_applications(state: str = "all") -> PlainTextResponse:
+        wanted = None if state in ("all", "") else state
+        rows = ctx.store.applications(wanted)
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["state", "updated_at", "title", "company", "board", "score", "url"])
+        for row in rows:
+            job = ctx.store.job(row.job_id) or {}
+            evaluation = ctx.store.latest_evaluation(row.job_id) or {}
+            writer.writerow([
+                row.state, row.updated_at, job.get("title", ""), job.get("company", ""),
+                job.get("source", ""), evaluation.get("score_total", ""),
+                job.get("external_id", ""),
+            ])
+        return PlainTextResponse(
+            buffer.getvalue(),
+            headers={"Content-Disposition": 'attachment; filename="applications.csv"'},
+        )
 
     @app.get("/runs", response_class=HTMLResponse)
     def list_runs(request: Request) -> HTMLResponse:

@@ -1,0 +1,31 @@
+{% extends "base.html.j2" %}
+{% block title %}Applications · jobcaliber{% endblock %}
+{% block content %}
+<h1>Applications</h1>
+<p class="count">
+  {{ total }} marked
+  {% set base = '/applications' %}
+  · <a href="{{ base }}?state=all">all</a>
+  · <a href="{{ base }}?state=applied">applied</a>
+  · <a href="{{ base }}?state=planned">will apply</a>
+  · <a href="{{ base }}?state=skipped">not interested</a>
+  · <a href="/applications.csv?state={{ state }}">export CSV</a>
+</p>
+<table>
+  <thead><tr><th>State</th><th>Updated</th><th>Offer</th><th>Board</th><th>Ad</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+    {% set app = row.application %}{% set job = row.job %}
+    <tr>
+      <td><span class="app-{{ app.state }}">{{ app.state }}</span></td>
+      <td><small>{{ app.updated_at|localtime }}</small></td>
+      <td>{% if job %}<a href="/jobs/{{ job.id }}">{{ job.title }}</a><br><small>{{ job.company }}{% if job.location_raw %} · {{ job.location_raw }}{% endif %}</small>{% else %}—{% endif %}</td>
+      <td>{{ job.source if job else '—' }}</td>
+      <td>{% if job and job.external_id.startswith('http') %}<a href="{{ job.external_id }}" target="_blank" rel="noopener">open ↗</a>{% else %}—{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" class="empty">Nothing marked yet: open an offer and pick “Applied”, “Will apply” or “Not interested”.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

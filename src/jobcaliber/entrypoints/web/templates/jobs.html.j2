@@ -19,6 +19,17 @@
     <div class="grid">
       <div class="stack">
       <fieldset class="card">
+        <legend>Your call</legend>
+        <select name="state">
+          <option value="all" {% if filters.state == 'all' %}selected{% endif %}>any</option>
+          <option value="none" {% if filters.state == 'none' %}selected{% endif %}>not marked</option>
+          <option value="applied" {% if filters.state == 'applied' %}selected{% endif %}>applied</option>
+          <option value="planned" {% if filters.state == 'planned' %}selected{% endif %}>will apply</option>
+          <option value="skipped" {% if filters.state == 'skipped' %}selected{% endif %}>not interested</option>
+        </select>
+      </fieldset>
+
+      <fieldset class="card">
         <legend>Run</legend>
         <select name="run">
           <option value="all" {% if filters.run == 'all' %}selected{% endif %}>every run</option>
@@ -135,7 +146,7 @@
       {% if 'salary' in visible %}<th>Salary</th>{% endif %}
       {% if 'last_seen' in visible %}<th><a href="{{ jobs_url(filters, sort='last_seen_at', dir='asc' if filters.sort == 'last_seen_at' and filters.dir == 'desc' else 'desc') }}">Last seen</a></th>{% endif %}
       {% if 'run' in visible %}<th><a href="{{ jobs_url(filters, sort='run_started_at', dir='asc' if filters.sort == 'run_started_at' and filters.dir == 'desc' else 'desc') }}">Run</a></th>{% endif %}
-      {% if 'feedback' in visible %}<th>Feedback</th>{% endif %}
+      {% if 'status' in visible %}<th>Status</th>{% endif %}
     </tr>
   </thead>
   <tbody>
@@ -159,13 +170,13 @@
       {% endif %}
       {% if 'last_seen' in visible %}<td><small>{{ job.last_seen_at|localtime }}</small></td>{% endif %}
       {% if 'run' in visible %}<td><small>{{ job.run_started_at|localtime }}</small></td>{% endif %}
-      {% if 'feedback' in visible %}<td>{% if row.feedback == 'good' %}👍{% elif row.feedback == 'bad' %}👎{% else %}–{% endif %}</td>{% endif %}
+      {% if 'status' in visible %}<td>{% set app = row.application %}{% if app %}<span class="app-{{ app.state }}">{{ app.state }}</span>{% else %}–{% endif %}</td>{% endif %}
     </tr>
   {% else %}
     <tr>
-      <td colspan="{{ 5 + columns|length + (1 if 'salary' in visible else 0) + (1 if 'last_seen' in visible else 0) + (1 if 'run' in visible else 0) + (1 if 'feedback' in visible else 0) }}" class="empty">
+      <td colspan="{{ 5 + columns|length + (1 if 'salary' in visible else 0) + (1 if 'last_seen' in visible else 0) + (1 if 'run' in visible else 0) + (1 if 'status' in visible else 0) }}" class="empty">
         <strong>No results.</strong>
-        <span class="active-filters">decisions: {{ filters.decisions|join(', ') or 'none' }}{% if filters.source %} · board: {{ filters.source }}{% endif %}{% if filters.text %} · text: “{{ filters.text }}”{% endif %}{% if filters.location %} · location: “{{ filters.location }}”{% endif %}{% if filters.criterion %} · {{ filters.criterion }}{% if filters.option %} = {{ filters.option }}{% elif filters.value is not none %} {{ operators.get(filters.op, filters.op) }} {{ '%g'|format(filters.value) }}{% endif %}{% endif %}{% if filters.exclude_missing %} · without “cannot tell”{% endif %} · run: {{ "every run" if filters.run == 'all' else filters.run }}</span>
+        <span class="active-filters">decisions: {{ filters.decisions|join(', ') or 'none' }}{% if filters.source %} · board: {{ filters.source }}{% endif %}{% if filters.text %} · text: “{{ filters.text }}”{% endif %}{% if filters.location %} · location: “{{ filters.location }}”{% endif %}{% if filters.criterion %} · {{ filters.criterion }}{% if filters.option %} = {{ filters.option }}{% elif filters.value is not none %} {{ operators.get(filters.op, filters.op) }} {{ '%g'|format(filters.value) }}{% endif %}{% endif %}{% if filters.exclude_missing %} · without “cannot tell”{% endif %} · run: {{ "every run" if filters.run == 'all' else filters.run }}{% if filters.state != 'all' %} · call: {{ filters.state }}{% endif %}</span>
         <a href="/jobs?run=all">Widen the search</a> ·
         <a href="/">reset the filters</a>.
       </td>

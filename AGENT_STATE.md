@@ -130,6 +130,22 @@ header). Default `roles: {scorer: rizzo}`.
 escaped; 4096-char cap; `notified_at` for idempotency; a delivery error never fails the run.
 Bot `@jobcaliber_bot`, chat id in gitignored `config/settings.yaml`, token in `.env`.
 
+## Applications (implemented 2026-10-23)
+
+`applications(job_id PK, state ∈ applied|planned|skipped, source, note, created_at, updated_at)`
+replaces `feedback`: the mark belongs to the **posting**, not to the evaluation, so a re-score no
+longer orphans it. Schema v4; the five old verdicts were migrated (`good → planned`,
+`bad → skipped`, `source = feedback:<verdict>`, original timestamps kept). Web: three buttons on
+the detail page, a `status` column + `state=` filter in the list, `/applications` and
+`/applications.csv`. Telegram skips any posting that has a mark.
+
+## Open work
+
+- **Now**: application ledger (feedback becomes "applied / will apply / not interested", keyed on the
+  job, with a `/applications` page and an export).
+- Deferred: nightly backup, model calibration, live run counters, config editor + profile diff.
+- At the server: three systemd units (incl. rizzo), engine choice for the i5.
+
 ## Next steps (agreed, not started)
 
 1. ~~LAN access~~ **done**: the unit binds `0.0.0.0`, README has "Access from your phone"

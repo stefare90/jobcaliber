@@ -83,9 +83,14 @@ CREATE TABLE IF NOT EXISTS evaluation_answers (
 CREATE INDEX IF NOT EXISTS idx_answers_criterion ON evaluation_answers(criterion, value);
 
 -- The user's verdict on one judgement: good or bad. Updatable, one per evaluation.
-CREATE TABLE IF NOT EXISTS feedback (
-  id            INTEGER PRIMARY KEY,
-  evaluation_id INTEGER NOT NULL UNIQUE REFERENCES evaluations(id) ON DELETE CASCADE,
-  verdict       TEXT NOT NULL CHECK (verdict IN ('good', 'bad')),
-  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+-- One row per posting the user acted on. Keyed on the job, not on an evaluation: a re-score
+-- creates a new evaluation and must not orphan the fact that the ad was applied to.
+CREATE TABLE IF NOT EXISTS applications (
+  job_id     INTEGER PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+  state      TEXT NOT NULL CHECK (state IN ('applied', 'planned', 'skipped')),
+  source     TEXT NOT NULL DEFAULT 'ui',
+  note       TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_applications_state ON applications(state);

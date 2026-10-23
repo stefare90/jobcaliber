@@ -3,8 +3,8 @@
 db_path: ./data/jobs.db
 scraping:
   boards:
-  - linkedin
-  - indeed
+    - linkedin
+    - indeed
   page_size: 50
   board_max_results:
     linkedin: 300
@@ -13,7 +13,7 @@ scraping:
 schedule:
   timezone: Europe/Rome
   scrape_times:
-  - 08:00
+    - 08:00
   backup_time: 03:00
 notifications:
   # Where the links inside a message point: the web app as the phone sees it.
@@ -40,7 +40,7 @@ ai:
         max_attempts: 5
         base_delay_s: 2.0
         max_delay_s: 30.0
-    local_llm:
+    qwen3_llm:
       kind: llm
       api: openai
       base_url: http://localhost:11434/v1

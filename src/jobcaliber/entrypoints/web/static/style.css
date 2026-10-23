@@ -455,3 +455,9 @@ h1 {
                 --on-accent: #ffffff;
         }
 }
+
+.app-applied { color: var(--ok, #1a7f37); font-weight: 600; }
+.app-planned { color: var(--info, #1f6feb); font-weight: 600; }
+.app-skipped { color: var(--muted, #6b7280); }
+.feedback .clear { background: transparent; color: var(--muted, #6b7280); border: 1px solid var(--border, #d0d7de); }
+.feedback button.chosen { outline: 2px solid var(--accent, #1c1c1e); }

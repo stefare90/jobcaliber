@@ -532,3 +532,38 @@ committing `config.yaml`.
   Only `config_loader` changed (`CONFIG_DIR`, anchored `.gitignore` patterns), plus a test that a
   stray copy at the repository root is **not** picked up. Moving the files does not re-score:
   the version key is the profile *content*, not its path. Tests 236.
+- [ ] Backlog decided on 2026-10-23 (ordering by value, not by effort):
+  1. **DONE 2026-10-23 — application ledger**: feedback changes purpose from "model verdict" to "I applied / will
+     apply / not interested". Keyed on `jobs.id`, not on `evaluations.id` (today a re-score orphans
+     the mark, because `feedback.evaluation_id` points at the old evaluation). Migration v4
+     (`applications(job_id PK, state, note, created_at, updated_at)`), three buttons on the detail
+     page, a `status` column + filter in the list, a `/applications` page, and a CSV/JSON export of
+     what was applied. Telegram skips postings already marked.
+  2. **DEFERRED — nightly backup**: `schedule.backup_time` is dead config. The worker should run
+     `db backup` once a day and keep N copies; the DB now holds 1022 postings and will hold the
+     application ledger, which is not reconstructible.
+  3. **DEFERRED — model calibration**: needs real verdicts (0 today). Then: decisions computed at
+     read time (so thresholds are free to tune), `jobcaliber calibrate` reading the DB (recall@k,
+     error attribution via `dropped_by`, confidence vs accuracy), per-criterion feedback. Rubric
+     work goes on a frozen labelled subset (40 tune + 21 holdout), one change per iteration.
+  4. **DEFERRED — live run counters** in `/runs` (declined for now: `finish_run` writes them at the
+     end, so a running run shows 0).
+  5. **DEFERRED — config editor** (`ConfigService`, profile in the DB with the YAML as import/export)
+     together with a profile diff view between `config_v` versions. Last real feature, paired with 1.
+  6. **AT THE SERVER — three systemd units**: `web`, `worker` and **`rizzo`** (today rizzo is started
+     by hand; after a reboot the worker fails the preflight in 40 ms). `loginctl enable-linger`.
+  7. **AT THE SERVER — engine choice on the i5-8th-gen/16 GB**: rizzo 4B at ~6.6 s/posting here means
+     an estimated 20-40 s there (6-11 h per run); OneJev 0.8B is the candidate that would fit.
+  8. **NOT NEEDED — `jobcaliber doctor`** (rejected: `status`, `db check` and the preflight cover it).
+  9. **Candidates noticed while reviewing the model space**: duplicate ads across boards (same job on
+     LinkedIn and Indeed = two rows to review, `external_id` is the URL), and ads that vanished from
+     the boards (`last_seen_at` grows, nothing marks them closed).
+- [x] Application ledger (2026-10-23) — schema v4: `applications(job_id PK, state, source, note,
+  created_at, updated_at)` replaces `feedback`, which was keyed on `evaluations.id` and would have
+  been orphaned by the next re-score. The five existing verdicts were migrated (`good -> planned`,
+  `bad -> skipped`, provenance kept in `source`, original timestamps preserved) — a first attempt on
+  a plain file copy found zero rows because the rows were still in the **WAL**; the real migration
+  ran with the services stopped and an explicit backup. Web: three buttons (applied / will apply /
+  not interested + undo) on the detail page, a `status` column with a `state=` filter, a
+  `/applications` page and a CSV export. Telegram never re-sends a posting that carries a mark.
+  Tests 240.

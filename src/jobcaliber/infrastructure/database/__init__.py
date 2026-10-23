@@ -7,9 +7,17 @@ from jobcaliber.infrastructure.database.schema import (
     table_count,
 )
 from jobcaliber.infrastructure.database.schema_version import SCHEMA_VERSION
-from jobcaliber.infrastructure.database.store import JobRow, RunStats, Store
+from jobcaliber.infrastructure.database.store import (
+    APPLICATION_STATES,
+    ApplicationRow,
+    JobRow,
+    RunStats,
+    Store,
+)
 
 __all__ = [
+    "APPLICATION_STATES",
+    "ApplicationRow",
     "SCHEMA_PATH",
     "SCHEMA_VERSION",
     "JobRow",

@@ -96,21 +96,23 @@ def test_answers_are_normalised(store):
     assert stored["dropped_by"] is None
 
 
-def test_feedback_is_updatable(store):
-    v, _ = store.config_version("cfg")
+def test_an_application_is_one_updatable_row_per_job(store):
     job_id, _ = store.upsert_posting(posting())
-    evaluation_id = store.save_evaluation(job_id, None, v, "rizzo", scored(), evaluated())
-    store.save_feedback(evaluation_id, "good")
-    assert store.feedback(evaluation_id) == "good"
-    store.save_feedback(evaluation_id, "bad")
-    assert store.feedback(evaluation_id) == "bad"
+    store.save_application(job_id, "planned")
+    assert store.application(job_id).state == "planned"
+    store.save_application(job_id, "applied")
+    assert store.application(job_id).state == "applied"
     with store.connect() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM feedback").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM applications").fetchone()[0] == 1
+    assert store.applied_job_ids() == {job_id}
+    store.clear_application(job_id)
+    assert store.application(job_id) is None and store.applied_job_ids() == set()
 
 
-def test_feedback_rejects_unknown_verdict(store):
-    with pytest.raises(ValueError, match="verdict must be"):
-        store.save_feedback(1, "meh")
+def test_unknown_application_state_is_rejected(store):
+    job_id, _ = store.upsert_posting(posting())
+    with pytest.raises(ValueError, match="state must be one of"):
+        store.save_application(job_id, "maybe")
 
 
 def test_config_version_is_content_addressed(store):

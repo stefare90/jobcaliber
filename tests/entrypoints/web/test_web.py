@@ -122,18 +122,50 @@ def test_missing_job_is_404(client):
     assert client.get("/jobs/999").status_code == 404
 
 
-def test_feedback_is_saved_and_updatable(client, ctx):
-    job_id, evaluation_id = seed(ctx)
-    assert client.post(f"/jobs/{job_id}/feedback", data={"verdict": "good"},
-                       follow_redirects=False).status_code == 303
-    assert ctx.store.feedback(evaluation_id) == "good"
-    client.post(f"/jobs/{job_id}/feedback", data={"verdict": "bad"})
-    assert ctx.store.feedback(evaluation_id) == "bad"
-
-
-def test_feedback_rejects_an_unknown_verdict(client, ctx):
+def test_an_application_is_saved_updated_and_cleared(client, ctx):
     job_id, _ = seed(ctx)
-    assert client.post(f"/jobs/{job_id}/feedback", data={"verdict": "meh"}).status_code == 400
+    assert client.post(f"/jobs/{job_id}/application", data={"state": "planned"},
+                       follow_redirects=False).status_code == 303
+    assert ctx.store.application(job_id).state == "planned"
+    client.post(f"/jobs/{job_id}/application", data={"state": "applied"})
+    assert ctx.store.application(job_id).state == "applied"
+    client.post(f"/jobs/{job_id}/application", data={"state": "none"})
+    assert ctx.store.application(job_id) is None
+
+
+def test_the_application_survives_a_rescore(client, ctx):
+    """The mark belongs to the posting, not to the evaluation that was current when it was set."""
+    job_id, _ = seed(ctx)
+    client.post(f"/jobs/{job_id}/application", data={"state": "applied"})
+    config_v, _ = ctx.store.config_version(ctx.raw_yaml)
+    add_job(ctx.store, config_v, "https://x/rescore", "Other role", "Acme", GateDecision.PASS, 80.0,
+            {"core_skills": 0.9})
+    ctx.store.save_evaluation(job_id, None, config_v + 1, "other-engine",
+                              ScoringResult(answers={"core_skills": 0.9}), EvaluationResult(
+                                  decision=GateDecision.PASS, score_total=90.0, confidence=0.9))
+    assert ctx.store.application(job_id).state == "applied"
+
+
+def test_an_unknown_state_is_rejected(client, ctx):
+    job_id, _ = seed(ctx)
+    assert client.post(f"/jobs/{job_id}/application", data={"state": "meh"}).status_code == 400
+
+
+def test_the_applications_page_lists_what_was_marked(client, ctx):
+    job_id, _ = seed(ctx)
+    client.post(f"/jobs/{job_id}/application", data={"state": "applied"})
+    page = client.get("/applications").text
+    assert "Applications" in page and "applied" in page
+    csv_text = client.get("/applications.csv").text
+    assert csv_text.splitlines()[0].startswith("state,")
+    assert "applied" in csv_text
+
+
+def test_the_list_filters_by_state_and_shows_the_status_column(client, ctx):
+    job_id, _ = seed(ctx)
+    client.post(f"/jobs/{job_id}/application", data={"state": "planned"})
+    assert ">planned<" in client.get("/jobs?cols=status&state=planned").text
+    assert "No results" in client.get("/jobs?cols=status&state=applied").text
 
 
 def test_run_request_goes_through_the_queue(client, ctx):
@@ -153,14 +185,14 @@ def test_runs_page_lists_the_queue(client, ctx):
 
 ALLOWED_STORE_METHODS = {
     "jobs", "count_jobs", "job", "latest_evaluation", "answers_for", "missing_for",
-    "feedback_for", "criterion_columns", "runs", "last_run", "last_completed_run",
-    "pending_requests",
-    "save_feedback", "request_run",
+    "application", "applications", "applications_for",
+    "criterion_columns", "runs", "last_run", "last_completed_run", "pending_requests",
+    "save_application", "clear_application", "request_run",
 }
 
 
-def test_the_web_only_writes_feedback_and_run_requests():
-    """The web may add verdicts and queue a run. Everything else it only reads."""
+def test_the_web_only_writes_applications_and_run_requests():
+    """The web may mark a posting and queue a run. Everything else it only reads."""
     import re
 
     web = Path(__file__).resolve().parents[3] / "src" / "jobcaliber" / "entrypoints" / "web"
@@ -168,7 +200,7 @@ def test_the_web_only_writes_feedback_and_run_requests():
     for path in web.rglob("*.py"):
         called |= set(re.findall(r"store\.(\w+)\(", path.read_text(encoding="utf-8")))
     assert called <= ALLOWED_STORE_METHODS, f"unexpected Store calls from the web: {called - ALLOWED_STORE_METHODS}"
-    assert {"save_feedback", "request_run"} <= called      # the only two writes
+    assert {"save_application", "clear_application", "request_run"} <= called
 
 
 def test_choice_criterion_filters_by_option(client, ctx):

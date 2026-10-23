@@ -21,6 +21,19 @@ class RunStats:
     error: str | None = None
 
 
+APPLICATION_STATES = ("applied", "planned", "skipped")
+
+
+@dataclass
+class ApplicationRow:
+    job_id: int
+    state: str
+    source: str = "ui"
+    note: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
 @dataclass
 class JobRow:
     id: int
@@ -277,25 +290,56 @@ class Store:
         data["missing"] = [a["criterion"] for a in answers if a["missing"]]
         return data
 
-    # --- feedback -------------------------------------------------------
+    # --- applications ---------------------------------------------------
 
-    def save_feedback(self, evaluation_id: int, verdict: str, note: str | None = None) -> None:
-        if verdict not in ("good", "bad"):
-            raise ValueError(f"verdict must be 'good' or 'bad', got {verdict!r}")
+    def save_application(self, job_id: int, state: str, note: str | None = None,
+                         source: str = "ui") -> None:
+        if state not in APPLICATION_STATES:
+            raise ValueError(f"state must be one of {sorted(APPLICATION_STATES)}, got {state!r}")
         with self.connect() as conn:
             conn.execute(
-                "INSERT INTO feedback (evaluation_id, verdict) VALUES (?, ?) "
-                "ON CONFLICT(evaluation_id) DO UPDATE SET verdict = excluded.verdict, "
-                "created_at = datetime('now')",
-                (evaluation_id, verdict),
+                "INSERT INTO applications (job_id, state, source, note) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(job_id) DO UPDATE SET state = excluded.state, note = excluded.note, "
+                "source = excluded.source, updated_at = datetime('now')",
+                (job_id, state, source, note),
             )
 
-    def feedback(self, evaluation_id: int) -> str | None:
+    def clear_application(self, job_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM applications WHERE job_id = ?", (job_id,))
+
+    def application(self, job_id: int) -> ApplicationRow | None:
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT verdict FROM feedback WHERE evaluation_id = ?", (evaluation_id,)
+                "SELECT job_id, state, source, note, created_at, updated_at "
+                "FROM applications WHERE job_id = ?", (job_id,)
             ).fetchone()
-            return row["verdict"] if row else None
+            return ApplicationRow(**dict(row)) if row else None
+
+    def applications(self, state: str | None = None) -> list[ApplicationRow]:
+        query = ("SELECT a.job_id, a.state, a.source, a.note, a.created_at, a.updated_at "
+                 "FROM applications a ORDER BY a.updated_at DESC, a.job_id DESC")
+        params: tuple = ()
+        if state is not None:
+            query = query.replace(" FROM applications a ", " FROM applications a WHERE a.state = ? ")
+            params = (state,)
+        with self.connect() as conn:
+            return [ApplicationRow(**dict(row)) for row in conn.execute(query, params)]
+
+    def applications_for(self, job_ids: list[int]) -> dict[int, ApplicationRow]:
+        if not job_ids:
+            return {}
+        placeholders = ",".join("?" * len(job_ids))
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT job_id, state, source, note, created_at, updated_at FROM applications "
+                f"WHERE job_id IN ({placeholders})", job_ids
+            ).fetchall()
+            return {row["job_id"]: ApplicationRow(**dict(row)) for row in rows}
+
+    def applied_job_ids(self) -> set[int]:
+        with self.connect() as conn:
+            return {row["job_id"] for row in conn.execute("SELECT job_id FROM applications")}
 
     # --- notification ---------------------------------------------------
 
@@ -331,12 +375,12 @@ class Store:
              text: str | None = None, location: str | None = None,
              criterion: str | None = None, op: str | None = None,
              value: float | None = None, option: str | None = None,
-             exclude_missing: bool = False, run_id: int | None = None,
+             exclude_missing: bool = False, run_id: int | None = None, state: str = "all",
              sort: str = "score_total", direction: str = "desc",
              limit: int = 50, offset: int = 0) -> list[JobRow]:
         """Rows for the web table: the latest evaluation per job, filtered and ordered."""
         where, params = self._where(decisions, source, text, location, criterion, op, value,
-                                    option, exclude_missing, run_id)
+                                    option, exclude_missing, run_id, state)
         order, join, join_params = self._order(sort, direction)
         limit = max(1, min(int(limit), 500))
         query = (
@@ -357,9 +401,10 @@ class Store:
                    text: str | None = None, location: str | None = None,
              criterion: str | None = None, op: str | None = None,
                    value: float | None = None, option: str | None = None,
-                   exclude_missing: bool = False, run_id: int | None = None) -> int:
+                   exclude_missing: bool = False, run_id: int | None = None,
+                   state: str = "all") -> int:
         where, params = self._where(decisions, source, text, location, criterion, op, value,
-                                    option, exclude_missing, run_id)
+                                    option, exclude_missing, run_id, state)
         with self.connect() as conn:
             return conn.execute(
                 "SELECT COUNT(*) FROM jobs j JOIN evaluations e ON e.id = "
@@ -370,9 +415,16 @@ class Store:
 
     @staticmethod
     def _where(decisions, source, text, location, criterion, op, value, option, exclude_missing,
-               run_id):
+               run_id, state="all"):
         conditions: list[str] = []
         params: list[object] = []
+        if state == "none":
+            conditions.append("NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)")
+        elif state and state != "all":
+            conditions.append(
+                "EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id AND a.state = ?)"
+            )
+            params.append(state)
         if decisions:
             conditions.append(f"e.decision IN ({','.join('?' * len(decisions))})")
             params.extend(decisions)
@@ -476,17 +528,6 @@ class Store:
                 "SELECT * FROM evaluations WHERE job_id = ? ORDER BY id DESC LIMIT 1", (job_id,)
             ).fetchone()
         return dict(row) if row else None
-
-    def feedback_for(self, evaluation_ids: list[int]) -> dict[int, str]:
-        if not evaluation_ids:
-            return {}
-        placeholders = ",".join("?" * len(evaluation_ids))
-        with self.connect() as conn:
-            rows = conn.execute(
-                f"SELECT evaluation_id, verdict FROM feedback WHERE evaluation_id IN ({placeholders})",
-                evaluation_ids,
-            ).fetchall()
-        return {row["evaluation_id"]: row["verdict"] for row in rows}
 
     def criterion_columns(self) -> list[str]:
         """The dynamic columns of the web table: one per criterion of the current evaluations."""
