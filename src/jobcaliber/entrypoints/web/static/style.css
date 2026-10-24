@@ -122,12 +122,9 @@ footer {
         padding: .1rem .5rem;
 }
 
-.filters .grid {
-        display: grid;
-        grid-template-columns: 1fr 1.3fr 1fr;
-        gap: .6rem;
+.filters .panel {
         padding: 0 .75rem .6rem;
-        align-items: start;
+        min-width: 0;
 }
 
 .filters .stack {
@@ -137,11 +134,7 @@ footer {
         min-width: 0;
 }
 
-@media (max-width: 900px) {
-        .filters .grid {
-                grid-template-columns: 1fr;
-        }
-}
+
 
 .filters .card {
         border: 1px solid var(--line);
@@ -171,6 +164,13 @@ footer {
         align-items: center;
 }
 
+.cols-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .1rem 1rem;
+        font-size: .85rem;
+}
+
 .filters .cols-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -178,6 +178,13 @@ footer {
 }
 
 @media (max-width: 1200px) {
+        .cols-row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: .1rem 1rem;
+                font-size: .85rem;
+        }
+
         .filters .cols-grid {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
         }
@@ -210,7 +217,7 @@ footer {
         gap: .6rem;
         align-items: center;
         justify-content: flex-end;
-        padding: 0 .75rem .75rem;
+        padding: .5rem 0 0;
 }
 
 .filters .actions button {
@@ -456,8 +463,59 @@ h1 {
         }
 }
 
-.app-applied { color: var(--ok, #1a7f37); font-weight: 600; }
-.app-planned { color: var(--info, #1f6feb); font-weight: 600; }
-.app-skipped { color: var(--muted, #6b7280); }
-.feedback .clear { background: transparent; color: var(--muted, #6b7280); border: 1px solid var(--border, #d0d7de); }
-.feedback button.chosen { outline: 2px solid var(--accent, #1c1c1e); }
+.app-applied {
+        color: var(--ok, #1a7f37);
+        font-weight: 600;
+}
+
+.app-planned {
+        color: var(--info, #1f6feb);
+        font-weight: 600;
+}
+
+.app-skipped {
+        color: var(--muted, #6b7280);
+}
+
+.feedback .clear {
+        background: transparent;
+        color: var(--muted, #6b7280);
+        border: 1px solid var(--border, #d0d7de);
+}
+
+.feedback button.chosen {
+        outline: 2px solid var(--accent, #1c1c1e);
+}
+
+/* sub-boxes inside Filters: score/decision, job, criteria, status/dates */
+.filters .subbox { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 .5rem;
+  padding: .3rem .5rem .5rem; min-width: 0; }
+.filters .subbox legend { font-size: 11px; }
+/* fields flow on one row and wrap only when they run out of room: label and widget stay close,
+   the gap between two fields is the larger one */
+.filter-fields { display: flex; flex-wrap: wrap; gap: .3rem 1.4rem; align-items: center; }
+.filter-fields .field { display: flex; align-items: center; gap: .3rem; min-width: 0; font-size: .85rem; }
+.filter-fields .field > label { color: var(--muted, #6b7280); white-space: nowrap; }
+.filter-fields .field select, .filter-fields .field input { flex: 0 0 auto; width: auto; min-width: 0; }
+.filter-fields .field select[name^="op__"] { width: 2.4rem; padding-left: .2rem; padding-right: .1rem; }
+.filter-fields .field input[type=number] { width: 5.5rem; }
+.filter-fields .field input[type=search] { width: 8rem; }
+.filter-fields .field input[type=date] { width: 8.5rem; }
+.filter-fields .field select:not([name^="op__"]) { min-width: 6rem; max-width: 12rem; }
+.filter-fields .checks { display: flex; gap: .1rem .5rem; }
+
+@media (max-width: 1500px) {
+        .filter-fields {
+                grid-template-columns: repeat(2, max-content 2.2rem minmax(6rem, 1fr));
+        }
+
+        .filter-fields .field {
+                grid-column: span 3;
+        }
+}
+
+@media (max-width: 800px) {
+        .filter-fields {
+                grid-template-columns: max-content 2.2rem minmax(0, 1fr);
+        }
+}

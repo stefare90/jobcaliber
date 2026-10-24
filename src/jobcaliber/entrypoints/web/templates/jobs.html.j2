@@ -1,4 +1,37 @@
 {% extends "base.html.j2" %}
+{% macro filter_field(row) %}
+  {% set id = 'filter-' ~ row.column.key|replace(':', '-') %}
+  <div class="field field-{{ row.column.kind }}">
+    <label for="{{ id }}">{{ row.column.label }}</label>
+    {% if row.column.kind == 'number' %}
+      <select name="op__{{ row.column.key }}" title="comparison">
+        {% for op in row.column.ops %}
+          <option value="{{ op }}" {% if op == row.op %}selected{% endif %}>{{ operators.get(op, op) }}</option>
+        {% endfor %}
+      </select>
+    {% endif %}
+    {% if row.column.key == 'decision' %}
+      <span class="checks">
+        {% for option in row.column.options %}
+          <label class="inline"><input type="checkbox" name="decisions" value="{{ option }}"
+            {% if option in row.value %}checked{% endif %}> {{ option }}</label>
+        {% endfor %}
+      </span>
+    {% elif row.column.kind == 'enum' %}
+      <select id="{{ id }}" name="val__{{ row.column.key }}">
+        <option value="">any</option>
+        {% for option in row.column.options %}
+          <option value="{{ option }}" {% if option in row.value %}selected{% endif %}>{{ row.column.option_labels.get(option, option) }}</option>
+        {% endfor %}
+      </select>
+    {% else %}
+      <input id="{{ id }}" type="{{ 'date' if row.column.kind == 'date' else 'search' }}"
+             name="val__{{ row.column.key }}" placeholder="any" value="{{ row.shown }}">
+    {% endif %}
+  </div>
+{% endmacro %}
+
+
 {% block title %}Jobs · jobcaliber{% endblock %}
 {% block content %}
 <form method="get" action="/jobs" class="filters-form">
@@ -6,126 +39,45 @@
     <summary>
       <span class="title">Filters</span>
       <span class="chips">
-        {%- if filters.text %}<span class="chip">text: {{ filters.text }}</span>{% endif %}
-        {%- if filters.location %}<span class="chip">location: {{ filters.location }}</span>{% endif %}
-        {%- if filters.source %}<span class="chip">board: {{ filters.source }}</span>{% endif %}
-        <span class="chip">decisions: {{ filters.decisions|join(', ') }}</span>
-        {%- if filters.criterion %}<span class="chip">{{ filters.criterion }}{% if filters.option %} = {{ filters.option }}{% elif filters.value is not none %} {{ operators.get(filters.op, filters.op) }} {{ '%g'|format(filters.value) }}{% endif %}</span>{% endif %}
+        <span class="chip">decision: {{ filters.decisions|join(', ') }}</span>
+        {%- for row in filters.rows if row.shown and row.column.key != 'decision' %}
+          <span class="chip">{{ row.column.label }} {{ operators.get(row.op, row.op) }} {{ row.shown }}</span>
+        {%- endfor %}
         {%- if filters.exclude_missing %}<span class="chip">without “cannot tell”</span>{% endif %}
-        <span class="chip">run: {{ "every" if filters.run == 'all' else filters.run }}</span>
       </span>
     </summary>
 
-    <div class="grid">
-      <div class="stack">
-      <fieldset class="card">
-        <legend>Your call</legend>
-        <select name="state">
-          <option value="all" {% if filters.state == 'all' %}selected{% endif %}>any</option>
-          <option value="none" {% if filters.state == 'none' %}selected{% endif %}>not marked</option>
-          <option value="applied" {% if filters.state == 'applied' %}selected{% endif %}>applied</option>
-          <option value="planned" {% if filters.state == 'planned' %}selected{% endif %}>will apply</option>
-          <option value="skipped" {% if filters.state == 'skipped' %}selected{% endif %}>not interested</option>
-        </select>
-      </fieldset>
-
-      <fieldset class="card">
-        <legend>Run</legend>
-        <select name="run">
-          <option value="all" {% if filters.run == 'all' %}selected{% endif %}>every run</option>
-          {% for run in runs %}
-            <option value="{{ run.id }}" {% if filters.run == run.id|string %}selected{% endif %}>
-              {{ run.started_at|localtime }} · {{ run.status }} · {{ run.new }} new
-            </option>
-          {% endfor %}
-        </select>
-      </fieldset>
-
-      <fieldset class="card">
-        <legend>Text</legend>
-        <label>Title or company
-          <input type="search" name="q" value="{{ filters.text or '' }}" placeholder="python">
-        </label>
-        <label>Ad location
-          <input type="search" name="location" value="{{ filters.location or '' }}" placeholder="Cagliari">
-        </label>
-      </fieldset>
-
-      </div>
-
-      <div class="stack">
-      <fieldset class="card">
-        <legend>Board</legend>
-        <select name="source">
-          <option value="">any</option>
-          {% for board in sources %}
-            <option value="{{ board }}" {% if board == filters.source %}selected{% endif %}>{{ board }}</option>
-          {% endfor %}
-        </select>
-      </fieldset>
-
-      <fieldset class="card">
-        <legend>Decision</legend>
-        <div class="row">
-          {% for decision in decisions %}
-            <label class="inline"><input type="checkbox" name="decisions" value="{{ decision }}"
-              {% if decision in filters.decisions %}checked{% endif %}> {{ decision }}</label>
-          {% endfor %}
-        </div>
-      </fieldset>
-
-      <fieldset class="card wide">
-        <legend>Criterion</legend>
-        <div class="row">
-          <select name="criterion">
-            <option value="">any</option>
-            {% for column in filters.criterion_names %}
-              <option value="{{ column }}" {% if column == filters.criterion %}selected{% endif %}>{{ column }}</option>
-            {% endfor %}
-          </select>
-          <select name="op" title="Comparison, used for scored criteria">
-            {% for key, symbol in operators.items() %}
-              <option value="{{ key }}" {% if key == filters.op %}selected{% endif %}>{{ symbol }}</option>
-            {% endfor %}
-          </select>
-          {% if filters.criterion_type == 'choice' %}
-            <select name="value" title="Value, from the selected criterion's options">
-              <option value="">any</option>
-              {% for option in criterion_options %}
-                <option value="{{ option }}" {% if option == filters.option %}selected{% endif %}>{{ option }}</option>
-              {% endfor %}
-            </select>
-          {% else %}
-            <input type="text" name="value" placeholder="0.67"
-                   value="{% if filters.value is not none %}{{ '%g'|format(filters.value) }}{% endif %}">
-          {% endif %}
-          <label class="inline" title="Hide offers where the model could not judge this">
-            <input type="checkbox" name="exclude_missing" value="1" {% if filters.exclude_missing %}checked{% endif %}>
-            remove “cannot tell”
-          </label>
-        </div>
-      </fieldset>
-
-      </div>
-
-      <div class="stack">
-      <fieldset class="card columns">
-        <legend>Columns</legend>
-        <div class="cols-grid">
+    <div class="panel">
+      <fieldset class="subbox">
+        <legend>Show columns</legend>
+        <div class="cols-row">
           {% for column in filters.selectable_columns %}
             <label class="inline"><input type="checkbox" name="cols" value="{{ column }}"
               {% if column in visible %}checked{% endif %}> {{ column }}</label>
           {% endfor %}
         </div>
       </fieldset>
-      </div>
-    </div>
 
-    <div class="actions">
-      <input type="hidden" name="sort" value="{{ filters.sort }}">
-      <input type="hidden" name="dir" value="{{ filters.dir }}">
-      <button type="submit">Apply</button>
-      <a href="/">Reset</a>
+      {% for title, rows in filters.groups %}
+        <fieldset class="subbox">
+          <legend>{{ title }}</legend>
+          <div class="filter-fields">
+            {% for row in rows %}{{ filter_field(row) }}{% endfor %}
+          </div>
+        </fieldset>
+      {% endfor %}
+      <div class="row">
+        <label class="inline" title="Hide offers where the model could not judge at least one criterion">
+          <input type="checkbox" name="exclude_missing" value="1" {% if filters.exclude_missing %}checked{% endif %}>
+          remove “cannot tell”
+        </label>
+      </div>
+      <div class="actions">
+        <input type="hidden" name="sort" value="{{ filters.sort }}">
+        <input type="hidden" name="dir" value="{{ filters.dir }}">
+        <button type="submit">Apply</button>
+        <a href="/">Reset</a>
+      </div>
     </div>
   </details>
 </form>
@@ -176,8 +128,8 @@
     <tr>
       <td colspan="{{ 5 + columns|length + (1 if 'salary' in visible else 0) + (1 if 'last_seen' in visible else 0) + (1 if 'run' in visible else 0) + (1 if 'status' in visible else 0) }}" class="empty">
         <strong>No results.</strong>
-        <span class="active-filters">decisions: {{ filters.decisions|join(', ') or 'none' }}{% if filters.source %} · board: {{ filters.source }}{% endif %}{% if filters.text %} · text: “{{ filters.text }}”{% endif %}{% if filters.location %} · location: “{{ filters.location }}”{% endif %}{% if filters.criterion %} · {{ filters.criterion }}{% if filters.option %} = {{ filters.option }}{% elif filters.value is not none %} {{ operators.get(filters.op, filters.op) }} {{ '%g'|format(filters.value) }}{% endif %}{% endif %}{% if filters.exclude_missing %} · without “cannot tell”{% endif %} · run: {{ "every run" if filters.run == 'all' else filters.run }}{% if filters.state != 'all' %} · call: {{ filters.state }}{% endif %}</span>
-        <a href="/jobs?run=all">Widen the search</a> ·
+        <span class="active-filters">decisions: {{ filters.decisions|join(', ') or 'none' }}{% for row in filters.rows if row.shown and row.column.key != 'decision' %} · {{ row.column.label }} {{ operators.get(row.op, row.op) }} {{ row.shown }}{% endfor %}{% if filters.exclude_missing %} · without “cannot tell”{% endif %}</span>
+        <a href="/jobs">Widen the search</a> ·
         <a href="/">reset the filters</a>.
       </td>
     </tr>

@@ -9,7 +9,9 @@ from jobcaliber.infrastructure.database.schema import (
 from jobcaliber.infrastructure.database.schema_version import SCHEMA_VERSION
 from jobcaliber.infrastructure.database.store import (
     APPLICATION_STATES,
+    FILTER_OPERATORS,
     ApplicationRow,
+    Filter,
     JobRow,
     RunStats,
     Store,
@@ -17,7 +19,9 @@ from jobcaliber.infrastructure.database.store import (
 
 __all__ = [
     "APPLICATION_STATES",
+    "FILTER_OPERATORS",
     "ApplicationRow",
+    "Filter",
     "SCHEMA_PATH",
     "SCHEMA_VERSION",
     "JobRow",

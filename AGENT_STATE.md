@@ -28,7 +28,8 @@ src/jobcaliber/
 ├── application/     runner.py (run_once) · worker.py (loop, claim, retry, hot reload)
 │                    schedule.py (is_due) · clients.py (AIClients: transports → services)
 ├── entrypoints/     cli.py (`jobcaliber`) · worker.py (`jobcaliber-worker`)
-│                    web/ (routes.py, readmodels.py, templates/*.html.j2, static/style.css)
+│                    web/ (app wiring + routes in routes.py, query-string logic in filters.py,
+│                          query -> view data in readmodels.py, templates/, static/)
 └── bootstrap.py     build_context() → AppContext(root, config, raw_yaml, store, engine)
 ```
 
@@ -141,9 +142,11 @@ the detail page, a `status` column + `state=` filter in the list, `/applications
 
 ## Open work
 
-- **Next**: multi-row filters — one row per criterion (AND), extended to every column (score,
-  confidence, board, ad location, decision, status, salary, last seen, run), each with its own input
-  type (operator + number, free text, or a list).
+- **Done 2026-10-23**: multi-row filters — `Filter(column, op, value|values|text)` in the store,
+  rows serialised as repeated `col/op/val/sel` params, one row per condition combined with AND, and
+  every column filterable (criteria as `crit:<name>`, score, confidence, salary, title, company,
+  location, decision, board, status, run, last seen). The empty row at the bottom is how a filter
+  gets added: no JavaScript.
 
 - **Now**: application ledger (feedback becomes "applied / will apply / not interested", keyed on the
   job, with a `/applications` page and an export).

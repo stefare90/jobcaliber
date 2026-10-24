@@ -18,22 +18,18 @@ class JobTable:
     limit: int = 50
 
 
-def job_table(store: Store, *, decisions=None, source=None, text=None, location=None,
-              criterion=None, op=None, value=None, option=None, exclude_missing=False,
-              run_id=None, state="all", columns=None, sort="score_total", direction="desc",
+def job_table(store: Store, *, decisions=None, text=None, filters=(), exclude_missing=False,
+              columns=None, sort="score_total", direction="desc",
               limit=50, offset=0) -> JobTable:
     total = store.count_jobs(
-        decisions=decisions, source=source, text=text, location=location, criterion=criterion,
-        op=op, value=value, option=option, exclude_missing=exclude_missing, run_id=run_id,
-        state=state,
+        decisions=decisions, text=text, filters=filters, exclude_missing=exclude_missing,
     )
     # An offset past the last page would render an empty table: clamp to the last page.
     if total and offset >= total:
         offset = ((total - 1) // limit) * limit
     rows = store.jobs(
-        decisions=decisions, source=source, text=text, location=location, criterion=criterion,
-        op=op, value=value, option=option, exclude_missing=exclude_missing, run_id=run_id,
-        state=state, sort=sort, direction=direction, limit=limit, offset=offset,
+        decisions=decisions, text=text, filters=filters, exclude_missing=exclude_missing,
+        sort=sort, direction=direction, limit=limit, offset=offset,
     )
     evaluation_ids = [row.evaluation_id for row in rows]
     answers = store.answers_for(evaluation_ids)

@@ -91,14 +91,17 @@ def test_jobs_shows_drops_when_asked(client, ctx):
     assert "Java Developer" in response.text
 
 
-def test_jobs_filters_by_text_source_and_criterion(client, ctx):
+def test_jobs_filters_by_text_board_and_criterion(client, ctx):
     seed(ctx)
-    assert "Senior Python Developer" in client.get("/jobs?decisions=pass,review,drop&q=python").text
-    assert "Beta" not in client.get("/jobs?decisions=pass,review,drop&q=python").text
-    filtered = client.get("/jobs?decisions=pass,review,drop&criterion=core_skills&op=le&value=0.5")
+    by_text = client.get("/jobs?decisions=pass,review,drop&val__title=python").text
+    assert "Senior Python Developer" in by_text
+    assert "Beta" not in by_text
+    by_board = client.get("/jobs?decisions=pass,review,drop&val__board=linkedin").text
+    assert "Senior Python Developer" in by_board
+    filtered = client.get("/jobs?decisions=pass,review,drop&op__crit:core_skills=le&val__crit:core_skills=0.5")
     assert "Java Developer" in filtered.text and "Senior Python Developer" not in filtered.text
-    only_missing = client.get("/jobs?decisions=pass,review&criterion=core_skills&missing=1")
-    assert "Embedded Engineer" in only_missing.text
+    without = client.get("/jobs?decisions=pass,review&exclude_missing=1")
+    assert "Embedded Engineer" not in without.text
 
 
 def test_jobs_rejects_unknown_sort_without_crashing(client, ctx):
@@ -164,8 +167,8 @@ def test_the_applications_page_lists_what_was_marked(client, ctx):
 def test_the_list_filters_by_state_and_shows_the_status_column(client, ctx):
     job_id, _ = seed(ctx)
     client.post(f"/jobs/{job_id}/application", data={"state": "planned"})
-    assert ">planned<" in client.get("/jobs?cols=status&state=planned").text
-    assert "No results" in client.get("/jobs?cols=status&state=applied").text
+    assert ">planned<" in client.get("/jobs?cols=status&val__status=planned").text
+    assert "No results" in client.get("/jobs?cols=status&val__status=applied").text
 
 
 def test_run_request_goes_through_the_queue(client, ctx):
@@ -205,7 +208,7 @@ def test_the_web_only_writes_applications_and_run_requests():
 
 def test_choice_criterion_filters_by_option(client, ctx):
     seed(ctx)
-    response = client.get("/jobs?decisions=pass,review,drop&criterion=location&value=accepted")
+    response = client.get("/jobs?decisions=pass,review,drop&val__crit:location=accepted")
     assert "Senior Python Developer" in response.text
     assert "Java Developer" not in response.text
 
@@ -214,13 +217,13 @@ def test_the_default_scope_is_all_offers(client, ctx):
     seed(ctx)
     response = client.get("/jobs?decisions=pass,review")
     assert "2 offers" in response.text         # pass + review, from every run
-    assert "every run" in response.text        # the run filter lists runs by date
+    assert "run" in response.text              # the run selector is one of the filter columns
 
 
 def test_last_scope_uses_the_last_completed_run_and_falls_back(client, ctx):
     seed(ctx)
     ctx.store.request_run("manual")             # a pending request must not blank the list
-    response = client.get("/jobs?run=last&decisions=pass,review")
+    response = client.get("/jobs?decisions=pass,review")
     assert response.status_code == 200
     assert "2 offers" in response.text         # no completed run: fall back to everything
 
@@ -243,7 +246,7 @@ def test_pagination_keeps_the_filters(client, ctx):
 
 def test_an_offset_past_the_last_page_clamps_instead_of_showing_nothing(client, ctx):
     seed(ctx)
-    response = client.get("/jobs?run=all&decisions=pass,review,drop&limit=10&offset=500")
+    response = client.get("/jobs?decisions=pass,review,drop&limit=10&offset=500")
     assert response.status_code == 200
     assert "2 offers" in response.text or "3 offers" in response.text
     assert "No results" not in response.text
@@ -255,10 +258,10 @@ def test_pager_links_keep_every_filter(client, ctx):
     for index in range(15):
         add_job(store, config_v, f"https://x/loc{index}", f"Rejected role {index}", "Acme",
                 GateDecision.REVIEW, 40.0 + index, {"location": "rejected"})
-    page = client.get("/jobs?run=all&criterion=location&value=rejected&limit=10&offset=0")
+    page = client.get("/jobs?val__crit:location=rejected&limit=10&offset=0")
     assert "next ›" in page.text
     href = page.text.split('class="pager"')[1].split('href="')[1].split('"')[0]
-    for fragment in ("criterion=location", "value=rejected", "limit=10", "offset=10", "run=all"):
+    for fragment in ("val__crit%3Alocation=rejected", "limit=10", "offset=10"):
         assert fragment in href, f"{fragment} missing from {href}"
 
 
@@ -283,8 +286,8 @@ def test_decisions_accept_both_form_style_and_comma_style(client, ctx):
     form_style = client.get("/jobs?decisions=pass&decisions=review&decisions=drop")
     comma_style = client.get("/jobs?decisions=pass,review,drop")
     assert "3 offers" in form_style.text and "3 offers" in comma_style.text
-    checked = re.findall(r'value="(pass|review|drop)"\s*\n?\s*checked', form_style.text)
-    assert sorted(checked) == ["drop", "pass", "review"]
+    checked = sorted(set(re.findall(r'name="decisions" value="(pass|review|drop)"', form_style.text)))
+    assert checked == ["drop", "pass", "review"]
     only_review = client.get("/jobs?decisions=review")
     assert "1 offers" in only_review.text
 
@@ -292,19 +295,20 @@ def test_decisions_accept_both_form_style_and_comma_style(client, ctx):
 def test_reset_returns_to_the_initial_state(client, ctx):
     """Reset must land on the same state as the first visit: pass+review, every run."""
     seed(ctx)
-    page = client.get("/jobs?decisions=pass,review,drop&criterion=location&value=rejected&q=zzz")
+    page = client.get("/jobs?decisions=pass,review,drop&val__crit:location=rejected&q=zzz")
     assert 'href="/">Reset</a>' in page.text
     reset = client.get("/", follow_redirects=True)
     assert "2 offers" in reset.text                       # pass + review only
-    assert "every run" in reset.text
+    assert "decision: pass, review" in reset.text          # and nothing else applied
+    assert '<span class="chip">score' not in reset.text
 
 
 def test_run_filter_lists_runs_and_filters_by_id(client, ctx):
     seed(ctx)
     run_id = ctx.store.start_run(1, "rizzo", "manual")
-    page = client.get(f"/jobs?run={run_id}")
+    page = client.get(f"/jobs?val__run={run_id}")
     assert page.status_code == 200
-    assert f'value="{run_id}"' in page.text               # the run appears in the select
+    assert f'value="{run_id}"' in page.text               # the run is a filter row value
     assert "0 offers" in page.text                        # no evaluation belongs to it yet
 
 
@@ -380,9 +384,10 @@ def test_description_blank_lines_are_collapsed(client, ctx):
 def test_the_filter_panel_is_closed_by_default(client, ctx):
     seed(ctx)
     page = client.get("/jobs")
-    assert '<details class="filters">' in page.text
-    assert '<details class="filters" open>' not in page.text
-    assert "Filters" in page.text
+    assert page.text.count('<details class="filters') == 1
+    assert " open>" not in page.text
+    assert ">Filters<" in page.text
+    assert "<legend>Show columns</legend>" in page.text          # a one-row sub-box on top
 
 
 def test_every_configured_criterion_is_filterable(client, ctx):
@@ -390,22 +395,21 @@ def test_every_configured_criterion_is_filterable(client, ctx):
     criterion = "brand_new"
     ctx.config.criteria[criterion] = ctx.config.criteria["core_skills"].model_copy()
     page = client.get("/jobs")
-    assert f'name="criterion"' in page.text
-    assert f'<option value="{criterion}"' in page.text
-    assert f'name="cols" value="{criterion}"' in page.text
+    assert f'name="val__crit:{criterion}"' in page.text          # it gets its own filter field
+    assert f'name="cols" value="{criterion}"' in page.text       # and is selectable as a column
 
 
-def test_value_field_shows_the_options_of_the_selected_criterion(client, ctx):
+def test_a_choice_criterion_offers_its_options_as_a_list(client, ctx):
     seed(ctx)
-    choice = client.get("/jobs?criterion=location&value=accepted")
-    assert '<select name="value"' in choice.text
+    choice = client.get("/jobs?val__crit:location=accepted")
+    assert 'name="val__crit:location"' in choice.text
     options = re.findall(r'<option value="(\w+)"[^>]*>\1</option>', choice.text)
-    assert "accepted" in options and "yes" not in options      # only this criterion's options
-    score = client.get("/jobs?criterion=core_skills&op=ge&value=0.5")
-    assert '<input type="text" name="value"' in score.text
-    assert '<select name="value"' not in score.text
+    assert "accepted" in options and "rejected" in options
+    score = client.get("/jobs?op__crit:core_skills=ge&val__crit:core_skills=0.5")
+    assert score.status_code == 200
+    assert 'name="val__crit:core_skills"' in score.text
     empty = client.get("/jobs")
-    assert '<input type="text" name="value"' in empty.text     # always visible
+    assert 'name="val__title"' in empty.text                    # every column has its own field
 
 
 def test_description_is_rendered_as_markdown_but_raw_html_is_escaped(client, ctx):
@@ -432,19 +436,19 @@ def test_description_is_rendered_as_markdown_but_raw_html_is_escaped(client, ctx
 
 def test_the_nav_link_keeps_the_active_filters(client, ctx):
     seed(ctx)
-    page = client.get("/jobs?decisions=pass&criterion=core_skills&op=ge&value=0.5")
+    page = client.get("/jobs?decisions=pass&op__crit:core_skills=ge&val__crit:core_skills=0.5")
     nav = page.text.split('<nav>')[1].split('</nav>')[0]
     href = html_lib.unescape(nav.split('href="')[1].split('"')[0])
-    assert "decisions=pass" in href and "criterion=core_skills" in href
-    assert "value=0.5" in href
+    assert "decisions=pass" in href and "val__crit%3Acore_skills=0.5" in href
+
 
 
 def test_the_nav_link_from_the_detail_page_keeps_the_filters(client, ctx):
     job_id, _ = seed(ctx)
-    page = client.get(f"/jobs/{job_id}?decisions=pass&q=python")
+    page = client.get(f"/jobs/{job_id}?decisions=pass&val__title=python")
     nav = page.text.split('<nav>')[1].split('</nav>')[0]
     href = html_lib.unescape(nav.split('href="')[1].split('"')[0])
-    assert "decisions=pass" in href and "q=python" in href
+    assert "decisions=pass" in href and "val__title=python" in href
 
 
 def test_the_nav_falls_back_to_the_default_list_without_filters(client, ctx):
@@ -455,10 +459,10 @@ def test_the_nav_falls_back_to_the_default_list_without_filters(client, ctx):
 
 def test_the_detail_link_carries_the_list_filters(client, ctx):
     seed(ctx)
-    page = client.get("/jobs?decisions=pass&criterion=core_skills&op=ge&value=0.5&offset=10&limit=10")
+    page = client.get("/jobs?decisions=pass&op__crit:core_skills=ge&val__crit:core_skills=0.5&offset=10&limit=10")
     href = html_lib.unescape(page.text.split('<td><a href="')[1].split('"')[0])
     assert href.startswith("/jobs/")
-    assert "decisions=pass" in href and "criterion=core_skills" in href
+    assert "decisions=pass" in href and "val__crit%3Acore_skills=0.5" in href
     assert "offset=10" in href and "limit=10" in href
 
 
@@ -489,3 +493,59 @@ def test_runs_show_local_time(client, ctx):
     page = client.get("/runs").text
     assert local_time("2026-10-23 08:00:00", ctx.tz) in page
     assert "2026-10-23 08:00" not in page
+
+
+def test_two_criterion_filters_are_combined_with_and(client, ctx):
+    seed(ctx)
+    config_v, _ = ctx.store.config_version(ctx.raw_yaml)
+    add_job(ctx.store, config_v, "https://x/both", "Both", "Acme", GateDecision.PASS, 80.0,
+            {"core_skills": 0.9, "tools": 0.9})
+    add_job(ctx.store, config_v, "https://x/one", "Only core", "Acme", GateDecision.PASS, 70.0,
+            {"core_skills": 0.9, "tools": 0.1})
+    url = ("/jobs?decisions=pass,review,drop&op__crit:core_skills=ge&val__crit:core_skills=0.5"
+           "&op__crit:tools=ge&val__crit:tools=0.5")
+    page = client.get(url).text
+    assert "1 offers" in page                    # only the posting that satisfies both
+    assert "Only core" not in page
+
+
+def test_a_numeric_column_uses_the_chosen_operator(client, ctx):
+    seed(ctx)
+    config_v, _ = ctx.store.config_version(ctx.raw_yaml)
+    add_job(ctx.store, config_v, "https://x/high", "High", "Acme", GateDecision.PASS, 90.0,
+            {"core_skills": 0.9})
+    base = "/jobs?decisions=pass,review,drop&op__score"
+    assert "High" in client.get(f"{base}=ge&val__score=75").text
+    assert "High" not in client.get(f"{base}=lt&val__score=75").text
+
+
+def test_an_unknown_column_or_value_is_ignored(client, ctx):
+    seed(ctx)
+    assert "2 offers" in client.get("/jobs?decisions=pass,review&val__ghost=1").text
+    assert "2 offers" in client.get("/jobs?decisions=pass,review&val__status=ghost").text
+
+
+def test_the_url_round_trips_every_filter_row(client, ctx):
+    from jobcaliber.entrypoints.web.filters import jobs_url
+
+    seed(ctx)
+    page = client.get("/jobs?decisions=pass&op__crit:core_skills=ge&val__crit:core_skills=0.5"
+                      "&val__status=planned")
+    nav = html_lib.unescape(page.text.split("<nav>")[1].split('href="')[1].split('"')[0])
+    assert "val__crit%3Acore_skills=0.5" in nav and "val__status=planned" in nav
+    assert "val__crit%3Acore_skills=0.5" in nav and "val__status=planned" in nav
+
+
+def test_the_empty_state_lists_every_active_filter(client, ctx):
+    page = client.get("/jobs?decisions=pass&col=crit:core_skills&op=ge&val=0.99"
+                      "&col=status&op=is&val=skipped").text
+    assert "No results" in page
+    assert "core_skills" in page and "skipped" in page
+
+
+def test_the_filter_module_is_free_of_http_types():
+    """`filters.py` is pure query-string logic: it must not know about FastAPI or requests."""
+    source = (Path(__file__).resolve().parents[3] / "src" / "jobcaliber" / "entrypoints" / "web"
+              / "filters.py").read_text(encoding="utf-8")
+    assert "fastapi" not in source
+    assert "Request" not in source

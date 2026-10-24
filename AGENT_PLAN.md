@@ -567,7 +567,7 @@ committing `config.yaml`.
   not interested + undo) on the detail page, a `status` column with a `state=` filter, a
   `/applications` page and a CSV export. Telegram never re-sends a posting that carries a mark.
   Tests 240.
-- [ ] **NEXT — multi-row filters, one per column** (requested 2026-10-23). Today the filter panel
+- [x] **Multi-row filters, one per column** (2026-10-23). Today the filter panel
   has a single "criterion + operator + value" triple, so only one criterion can be filtered at a
   time. Goal: **one row per criterion**, all of them combined with AND, so several can be filtered
   at once — and extend the same mechanism to every column (score, confidence, board, ad location,
@@ -588,3 +588,9 @@ committing `config.yaml`.
     separate card, and salary/last-seen/run become filterable too (last-seen/run as a date bound);
   - tests: two criteria at once (AND), a choice criterion by option, an unknown criterion ignored,
     the URL round-trip with two filters, and the empty-state message listing every active filter.
+  Implemented as a generic `Filter(column, op, value, text, values)` in the store with
+  `_condition()` mapping each column to SQL (`crit:<name>` goes through `evaluation_answers`, so
+  several criteria combine with AND; `status` goes through `applications`), the panel as a table of
+  `col/op/val/sel` rows (the always-present empty row is how a filter is added, no JS), operators and
+  value controls driven by the column type, and `decisions`/`text`/`exclude_missing` kept as the
+  always-visible controls. Tests 245.

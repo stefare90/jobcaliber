@@ -1,7 +1,7 @@
 import pytest
 
 from jobcaliber.core.domain import EvaluationResult, GateDecision, JobPosting, ScoringResult
-from jobcaliber.infrastructure.database import RunStats, Store
+from jobcaliber.infrastructure.database import Filter, RunStats, Store
 
 
 @pytest.fixture()
@@ -160,7 +160,7 @@ def test_jobs_filter_and_sort(store):
     assert [row.id for row in store.jobs(sort="score_total")] == [a, b]
     assert [row.id for row in store.jobs(sort="score_total", direction="asc")] == [b, a]
     assert [row.id for row in store.jobs(decisions=["drop"])] == [b]
-    assert [row.id for row in store.jobs(source="indeed")] == [b]
+    assert [row.id for row in store.jobs(filters=[Filter("board", "is", value=("indeed",))])] == [b]
     assert [row.id for row in store.jobs(text="python")] == [a]
     with pytest.raises(ValueError, match="cannot sort by"):
         store.jobs(sort="drop; DROP TABLE jobs")

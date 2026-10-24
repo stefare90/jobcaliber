@@ -5,6 +5,7 @@ import hashlib
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Sequence
 
 from jobcaliber.core.config.app import RUBRIC_VERSION
 from jobcaliber.core.domain import EvaluationResult, JobPosting, ScoringResult
@@ -22,6 +23,61 @@ class RunStats:
 
 
 APPLICATION_STATES = ("applied", "planned", "skipped")
+FILTER_OPERATORS = {"lt": "<", "le": "<=", "eq": "=", "ge": ">=", "gt": ">"}
+
+
+@dataclass
+class Filter:
+    """One condition on a column: a number, a text, or a list of allowed values."""
+
+    column: str
+    op: str = "eq"
+    value: float | str | tuple[str, ...] | None = None
+
+
+def _condition(item: Filter, params: list[object]) -> str:
+    """Turn one Filter into SQL, appending its bound parameters to `params`."""
+    column, op = item.column, item.op
+    if column.startswith("crit:"):
+        name = column[5:]
+        answer = "EXISTS (SELECT 1 FROM evaluation_answers a " \
+                 "WHERE a.evaluation_id = e.id AND a.criterion = ?"
+        params.append(name)
+        if isinstance(item.value, tuple):
+            answer += f" AND a.option IN ({','.join('?' * len(item.value))})"
+            params.extend(item.value)
+        elif item.value is not None:
+            operator = FILTER_OPERATORS.get(op)
+            if operator is None:
+                raise ValueError(f"unknown comparison operator {op!r}")
+            answer += f" AND a.value {operator} ?"
+            params.append(item.value)
+        return answer + ")"
+
+    if column in ("title", "company", "location"):
+        field = {"title": "j.title", "company": "j.company", "location": "j.location_raw"}[column]
+        params.append(f"%{item.value or ''}%")
+        return f"{field} LIKE ?"
+    if column == "board":
+        params.extend(item.value)
+        return f"j.source IN ({','.join('?' * len(item.value))})"
+    if column == "score":
+        operator = FILTER_OPERATORS[op] if op in FILTER_OPERATORS else "="
+        params.append(item.value)
+        return f"e.score_total {operator} ?"
+    if column == "run":
+        params.extend(item.value)
+        return f"e.run_id IN ({','.join('?' * len(item.value))})"
+    if column == "last_seen":
+        params.append(item.value or "")
+        return f"j.last_seen_at {'>=' if op != 'lt' else '<'} ?"
+    if column == "status":
+        if "none" in item.value:
+            return "NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)"
+        params.extend(item.value)
+        return ("EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id "
+                f"AND a.state IN ({','.join('?' * len(item.value))}))")
+    raise ValueError(f"unknown filter column {column!r}")
 
 
 @dataclass
@@ -371,16 +427,12 @@ class Store:
 
     # --- listing --------------------------------------------------------
 
-    def jobs(self, *, decisions: list[str] | None = None, source: str | None = None,
-             text: str | None = None, location: str | None = None,
-             criterion: str | None = None, op: str | None = None,
-             value: float | None = None, option: str | None = None,
-             exclude_missing: bool = False, run_id: int | None = None, state: str = "all",
+    def jobs(self, *, decisions: list[str] | None = None, text: str | None = None,
+             filters: Sequence[Filter] = (), exclude_missing: bool = False,
              sort: str = "score_total", direction: str = "desc",
              limit: int = 50, offset: int = 0) -> list[JobRow]:
         """Rows for the web table: the latest evaluation per job, filtered and ordered."""
-        where, params = self._where(decisions, source, text, location, criterion, op, value,
-                                    option, exclude_missing, run_id, state)
+        where, params = self._where(decisions, text, filters, exclude_missing)
         order, join, join_params = self._order(sort, direction)
         limit = max(1, min(int(limit), 500))
         query = (
@@ -397,14 +449,9 @@ class Store:
             ).fetchall()
         return [self._to_job_row(row) for row in rows]
 
-    def count_jobs(self, *, decisions: list[str] | None = None, source: str | None = None,
-                   text: str | None = None, location: str | None = None,
-             criterion: str | None = None, op: str | None = None,
-                   value: float | None = None, option: str | None = None,
-                   exclude_missing: bool = False, run_id: int | None = None,
-                   state: str = "all") -> int:
-        where, params = self._where(decisions, source, text, location, criterion, op, value,
-                                    option, exclude_missing, run_id, state)
+    def count_jobs(self, *, decisions: list[str] | None = None, text: str | None = None,
+                   filters: Sequence[Filter] = (), exclude_missing: bool = False) -> int:
+        where, params = self._where(decisions, text, filters, exclude_missing)
         with self.connect() as conn:
             return conn.execute(
                 "SELECT COUNT(*) FROM jobs j JOIN evaluations e ON e.id = "
@@ -414,53 +461,22 @@ class Store:
             ).fetchone()[0]
 
     @staticmethod
-    def _where(decisions, source, text, location, criterion, op, value, option, exclude_missing,
-               run_id, state="all"):
+    def _where(decisions, text, filters=(), exclude_missing=False):
         conditions: list[str] = []
         params: list[object] = []
-        if state == "none":
-            conditions.append("NOT EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id)")
-        elif state and state != "all":
-            conditions.append(
-                "EXISTS (SELECT 1 FROM applications a WHERE a.job_id = j.id AND a.state = ?)"
-            )
-            params.append(state)
         if decisions:
             conditions.append(f"e.decision IN ({','.join('?' * len(decisions))})")
             params.extend(decisions)
-        if source:
-            conditions.append("j.source = ?")
-            params.append(source)
         if text:
             conditions.append("(j.title LIKE ? OR j.company LIKE ?)")
             params.extend([f"%{text}%", f"%{text}%"])
-        if location:
-            conditions.append("j.location_raw LIKE ?")
-            params.append(f"%{location}%")
-        if run_id is not None:
-            conditions.append("e.run_id = ?")
-            params.append(run_id)
         if exclude_missing:
             conditions.append(
                 "NOT EXISTS (SELECT 1 FROM evaluation_answers a "
-                "WHERE a.evaluation_id = e.id AND a.missing = 1"
-                + (" AND a.criterion = ?" if criterion else "") + ")"
+                "WHERE a.evaluation_id = e.id AND a.missing = 1)"
             )
-            if criterion:
-                params.append(criterion)
-        if criterion:
-            answer = "EXISTS (SELECT 1 FROM evaluation_answers a WHERE a.evaluation_id = e.id AND a.criterion = ?"
-            params.append(criterion)
-            if option is not None:
-                answer += " AND a.option = ?"
-                params.append(option)
-            elif op and isinstance(value, float):
-                operator = {"lt": "<", "le": "<=", "gt": ">", "ge": ">=", "eq": "="}.get(op)
-                if operator is None:
-                    raise ValueError(f"unknown comparison operator {op!r}")
-                answer += f" AND a.value {operator} ?"
-                params.append(value)
-            conditions.append(answer + ")")
+        for item in filters:
+            conditions.append(_condition(item, params))
         return ("WHERE " + " AND ".join(conditions)) if conditions else "", params
 
     @staticmethod
