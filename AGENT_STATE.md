@@ -1,4 +1,8 @@
-# AGENT_STATE.md — current snapshot (read this first)
+# AGENT_STATE.md — current snapshot
+
+> Internal handoff for the agent working on this repo. For users and for a fresh
+> install, start from [`README.md`](README.md) and [`docs/INSTALL.md`](docs/INSTALL.md).
+> This file is the "where we are right now"; `AGENT_PLAN.md` is the log.
 
 Dense handoff for a fresh context. History and decisions live in `AGENT_PLAN.md`; binding rules in
 `AGENTS.md`; user-facing docs in `README.md`. This file is the "where we are right now".

@@ -1,363 +1,252 @@
 # jobcaliber
 
-Personal job-offer ranker: it searches the boards every day, scores each offer against
-**your** criteria with a model that runs on your machine, and shows you only what deserves your
-attention — without re-showing yesterday's same 50.
-
-## What it does
+**A personal job-offer ranker that runs entirely on your machine.** It queries the boards every
+day, scores each new offer against *your* criteria with a local model, and shows you only what
+deserves attention — without showing you yesterday's same fifty.
 
 ```
-search boards  →  score every offer  →  decide  →  show it  →  you say yes/no
+boards  →  fetch  →  score each offer  →  gate + thresholds  →  pass / review / drop
                                                                     │
-                                          the feedback calibrates the criteria ──┘
+                                              you mark it applied / will apply / skipped
+                                                                    │
+                                          those marks become the labels for calibration
 ```
 
-- **Searches** LinkedIn and Indeed for the titles and locations you configure.
-- **Scores** each new offer with one question per criterion (a local decision model by default,
-  any OpenAI-compatible engine as an alternative).
-- **Decides** with hard gates plus per-criterion thresholds: `drop`, `review` or `pass`.
-- **Remembers** everything: the same offer is never scored twice with the same configuration,
-  never re-notified, and the history stays attributable to the rules that produced it.
-- **Shows** the results in a local web app, where you mark each offer good or bad. Those
-  verdicts are the raw material for calibration.
+- **Searches** LinkedIn and Indeed for the job titles and locations you configure.
+- **Scores** every new offer with one question per criterion. The default engine is a **local**
+  decision model (no cloud, no API key, your data never leaves the machine).
+- **Decides** with hard gates plus per-criterion thresholds, and remembers *which* rule dropped
+  an offer.
+- **Remembers** everything: an offer is never scored twice with the same rules, never notified
+  twice, and every verdict stays attributable to the version of the rules that produced it.
+- **Shows** it in a small local web app: filter by any column, open an offer, mark what you did.
+- **Notifies** you on Telegram when a run finds offers worth your time.
 
-It is **not**: an auto-applier, a CV/cover-letter tailor, a multi-user service, or a crawler
-that hammers the boards.
+It is **not** an auto-applier, a CV/cover-letter writer, a multi-user service, or a crawler that
+hammers the boards.
 
-## Status
+---
 
-First release in progress. The scoring pipeline and the storage already run end-to-end from
-the command line; the web app and the worker are next.
+## Contents
 
-| Area | State |
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [How it works](#how-it-works)
+- [Configuration](#configuration)
+- [The web app](#the-web-app)
+- [Engines](#engines)
+- [Operating it](#operating-it)
+- [Privacy](#privacy)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+
+---
+
+## Requirements
+
+| | |
 |---|---|
-| Typed config (Pydantic v2) with fail-fast validation | ✅ |
-| Fetch: Title × location queries, per-board caps, polite pacing | ✅ |
-| Scoring: one question per criterion, rubric projected per engine | ✅ |
-| Evaluation: gates → thresholds → `pass`/`review`/`drop` | ✅ |
-| SQLite storage, idempotent evaluations, schema guard + migrations | ✅ |
-| CLI: `run`, `status`, `jobs`, `db` | ✅ |
-| Worker: schedule + queue (`runs` as the queue) | ✅ `jobcaliber-worker` |
-| Web UI: offer table, detail, Sì/No feedback, run request | ✅ `jobcaliber-web` |
-| Telegram notification with a link to the web UI | ⛔ after the web app |
-| Calibration on your own verdicts | ⛔ needs a few weeks of verdicts |
+| OS | Linux (tested on Arch + KDE/Hyprland), macOS, Windows |
+| Python | 3.11 or newer (managed by [`uv`](https://docs.astral.sh/uv/)) |
+| Disk | ~5 GB (the model + the llama.cpp runtime), plus the database |
+| RAM | 8 GB free is enough for the default 4B model; 16 GB is comfortable |
+| GPU | optional. The default engine runs on CPU, and ~4x faster on an AMD/NVIDIA iGPU via Vulkan |
+| Network | the boards during a fetch; nothing during scoring |
 
-## How it works
+A full run on a modern 8-core desktop with an iGPU takes **~30 min to fetch and ~6 s per new
+offer to score**. A machine with a slow CPU and no GPU will take several times longer — see
+[Engines](#engines) for the sizes and the trade-offs.
 
-1. **Fetch** (`pipeline/fetch/`) — JobSpy queries the boards for
-   `search.titles × (on_site_locations + remote_locations)`, paginating up to
-   `board_max_results[board]` and stopping early when a page brings no new offer. Captchas are
-   never stored, `NaN` becomes `None`, and no gate or score is applied here.
-2. **Dedup** — `external_id` (the board URL) is unique. The same offer seen again only refreshes
-   `last_seen_at`.
-3. **Scoring** (`pipeline/scoring/`) — each configured criterion carries its own question. The
-   rubric is **projected** at runtime into the engine's format: a `/v1/systemone` payload for
-   decision models, a chat prompt for LLM engines. One configuration, two formats, no drift.
-4. **Evaluation** (`pipeline/evaluation/`) — gates first (location, contract type, exclusions),
-   then per-criterion thresholds, then the confidence:
-   - an explicit negative answer can `drop`;
-   - a **missing** answer never drops: it becomes neutral, lowers the confidence and forces
-     `review`;
-   - everything above `apply_threshold` is `pass`.
-5. **Storage** (`infrastructure/database/`) — SQLite with WAL. Every judgement is a row in
-   `evaluations`, unique per `(job, config version, engine)`: re-running the same configuration
-   is a no-op, changing it re-scores everything.
-6. **Delivery** — the web app reads the database (⛔ next); Telegram will only send a link.
-
-## The scoring model
-
-`config/profile.yaml` holds the search inputs, the evaluation rules and the criteria;
-`config/settings.yaml` holds everything about how the system runs:
-
-```yaml
-search:                      # the only bound part: it drives the boards
-  titles: ["Software Engineer", "Embedded Software Engineer"]
-  on_site_locations: ["Sardinia, Italy"]
-  remote_locations: ["Italy"]
-  exclude: ["reserved for protected categories (law 68/99)"]
-
-criteria:                    # free keys, each with its own question
-  core_skills: {min_threshold: 0.5, apply_threshold: 0.67, question: {...}}
-  location:    {gate: {accept: ["accepted"]}, question: {...}}
-```
-
-- **Scored criteria** (`min_threshold` / `apply_threshold`): the answer is a 0-1 score.
-  Below `min_threshold` → `drop`; below `apply_threshold` → `review`; otherwise → `pass`.
-- **Gates** (`gate`): the answer must be one of the accepted options. A gate drops only on an
-  explicit negative answer.
-- **`missing`**: each question declares which level or option means "cannot tell". Missing
-  answers are exempt from thresholds, cost a confidence penalty and force `review`.
-- **No weights**: the 0-100 score is the simple mean of the scored criteria, used only to order
-  the list. The decision comes from the thresholds, so every drop has a name
-  (`dropped_by`: `location`, `core_skills`, …).
-
-Adding a criterion is **data, not code**: a new key with its question. The rubric for both
-engine families is generated from it, so there is no prompt file to keep in sync.
-
-## Architecture
-
-```
-src/jobcaliber/
-├── core/                 # models only: no I/O, no frameworks
-│   ├── domain.py         #   JobPosting, ScoringResult, EvaluationResult, GateDecision
-│   └── config/           #   search.py · criteria.py · ai.py · settings.py · app.py
-├── pipeline/             # one folder per step
-│   ├── fetch/            #   models.py · queries.py · parsing.py · fetcher.py
-│   ├── scoring/          #   scorer/ (systemone, llm) · projection/ (criteria → prompt)
-│   └── evaluation/       #   evaluator.py (gates, thresholds, confidence)
-├── infrastructure/       # how to talk to the world
-│   ├── database/         #   store.py · schema.py · migrations/
-│   ├── ai/               #   transports (systemone, openai), prompt rendering
-│   ├── config_loader.py  #   reads profile.yaml + settings.yaml
-│   └── env.py            #   reads .env
-├── application/          # what happens, in which order
-│   ├── runner.py         #   one run: fetch → score → evaluate → save
-│   ├── worker.py         #   schedule + claim queued runs
-│   ├── schedule.py       #   "is a slot due?" (pure functions)
-│   └── clients.py        #   transports → services, from config
-├── entrypoints/          # one module per process
-│   ├── cli.py            #   jobcaliber        → run | status | jobs | db
-│   ├── worker.py         #   jobcaliber-worker → the worker loop
-│   └── web/              #   uvicorn …web:create_app: table, detail, feedback
-└── bootstrap.py          # composition root
-```
-
-The layering is enforced by tests (`tests/test_layers.py`): `core` has no I/O, no framework
-imports and does not read files; no layer imports `entrypoints`; infrastructure never depends
-upwards. The web and
-the worker will be thin: they will not import the pipeline, only the database and the runner.
-
-**Process types.** One deployable package, two long-lived processes:
-
-| Process | Role | Talks to |
-|---|---|---|
-| `jobcaliber-web` (next) | shows offers, records your Sì/No, requests a run | the database |
-| `jobcaliber-worker` | owns the schedule, claims run requests, executes them | the database, the boards, the model |
-
-They never call each other: **the database is the contract**. `runs` doubles as the queue —
-the web inserts a `requested` row, the worker claims it atomically.
-
-## Installation
+## Quick start
 
 ```bash
-# 1. uv
+# 1. uv (Python toolchain, no root)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 
-# 2. dependencies (frozen = reproducible)
+# 2. the project
 git clone https://github.com/stefare90/jobcaliber && cd jobcaliber
 uv sync --frozen
 
-# 3. personal config + secrets (both gitignored)
+# 3. your configuration (both files stay out of git)
 cp config/profile.example.yaml config/profile.yaml
 cp config/settings.example.yaml config/settings.yaml
-cp .env.example .env && chmod 600 .env     # API keys, if your engine needs one
+cp .env.example .env && chmod 600 .env
 
-# 4. sanity checks
+# 4. a local decision engine (see "Engines"; any OpenAI-compatible API also works)
+#    cd ~/rizzo-flow && uv run rizzo serve --port 8017 --device auto --quant q4_k_m
+
+# 5. check it works
 uv run pytest -q
-uv run jobcaliber db version               # "new database (will be created at v2 on first use)"
+uv run jobcaliber db version
+uv run jobcaliber run --limit 5 --max-queries 1   # one small real pass, ~1 minute
 ```
 
-### Scoring engine
-
-The default is a **local** System One model (`rizzo-flow`, Apache-2.0, llama.cpp + Vulkan on the
-iGPU), which keeps your CV, criteria and postings on your machine:
+Then open the web app:
 
 ```bash
-cd ~/rizzo-flow && uv run rizzo serve --port 8017 --device auto --quant q4_k_m
+uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --port 8000
+# → http://127.0.0.1:8000
 ```
 
-Any OpenAI-compatible endpoint can replace it by changing `ai.engines` / `ai.roles` in the
-config — the code does not change.
+Use any port you like, but the one you pick must match `notifications.base_url` and the systemd
+unit. It is worth binding `0.0.0.0` (as the unit does) so your phone can reach it too.
 
-## Usage
+For a server install with systemd units, firewall and Telegram, follow
+[`docs/INSTALL.md`](docs/INSTALL.md). For the day-2 runbook (backups, migrations, upgrades,
+what to do when something fails) see [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
-```bash
-# one pass: fetch, score the pending offers, evaluate, persist
-uv run jobcaliber run
-uv run jobcaliber run --limit 5 --max-queries 1     # quick check, ~40s
-uv run jobcaliber run --dry-run                     # nothing is written
-uv run jobcaliber run --engine jev                  # score with another configured engine
+## How it works
 
-# the worker (systemd keeps it alive): schedule + queued requests, one run at a time
-uv run jobcaliber-worker                            # loop
-uv run jobcaliber-worker --once --limit 5 --max-queries 1   # one bounded tick
+1. **Fetch** (`pipeline/fetch/`) — the queries are
+   `search.titles × (on_site_locations + remote_locations)`. Each board is paginated up to
+   `scraping.board_max_results[board]`, and a page that brings no new offer stops the loop early.
+   Captchas are never stored, `NaN` becomes `None`, and no gate or score is applied here.
+2. **Dedup** — the board URL is the identity. Seeing the same offer again only refreshes
+   `last_seen_at`.
+3. **Score** (`pipeline/scoring/`) — every criterion carries its own question. The rubric is
+   **projected at runtime** into the engine's wire format (a `/v1/systemone` payload for decision
+   models, a chat prompt for LLM engines): one configuration, two formats, no drift.
+4. **Evaluate** (`pipeline/evaluation/`) — gates first, then thresholds, then confidence:
+   - a gate drops only on an **explicit negative** answer;
+   - a **missing** answer never drops: it forces `review`;
+   - below `min_threshold` → `drop`; below `apply_threshold` → `review`; otherwise → `pass`.
+5. **Store** (`infrastructure/database/`) — SQLite in WAL. Each judgement is a row in
+   `evaluations`, unique per `(job, profile version, engine)`: re-running unchanged rules is a
+   no-op, changing the profile re-scores.
+6. **Deliver** — the web app reads the database; Telegram sends one digest per run.
 
-# what happened / what is stored
-uv run jobcaliber status                            # last run + notifiable offers
-uv run jobcaliber jobs --decision review --limit 10
-
-# web app (local, read-mostly: it writes feedback and run requests only)
-uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --port 8765
-
-# database
-uv run jobcaliber db version                        # schema version in use
-uv run jobcaliber db check                          # does the file match schema.sql?
-uv run jobcaliber db migrate [--dry-run]            # apply pending migrations (manual on purpose)
-uv run jobcaliber db backup --to data/jobs.db.bak
-```
-
-A full run costs one call per new offer (~5 s each with the local model) plus the fetch
-(~20-30 min for all queries, dominated by board pagination). Re-runs only score what is new.
-
-### Access from your phone
-
-By default uvicorn binds `127.0.0.1` (this machine only). To open the page from a phone on the
-same Wi-Fi, three things are needed.
-
-**1. Listen on the LAN.**
-
-```bash
-uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --host 0.0.0.0 --port 8765
-```
-
-`0.0.0.0` means every interface. The systemd unit in `deploy/` already does this.
-
-**2. Open the port in the firewall** (this machine runs `firewalld`). Restrict it to your subnet
-instead of opening it to everyone:
-
-```bash
-sudo firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.1.0/24" \
-  port port="8765" protocol="tcp" accept' --permanent
-sudo firewall-cmd --reload
-sudo firewall-cmd --list-rich-rules
-```
-
-**3. Open it on the phone** with the machine's LAN address:
-
-```bash
-ip route get 1.1.1.1 | awk '{print $7}'    # e.g. 192.168.1.28
-curl http://192.168.1.28:8765/healthz      # verify before reaching for the phone
-```
-
-That gives `http://<lan-ip>:8765`. To use a **name instead of the IP**:
-
-- the machine already answers as `<hostname>.local` (mDNS/Avahi): `http://stefare-PC.local:8765`;
-- a nicer alias comes from one line in `/etc/avahi/hosts`:
-
-  ```bash
-  echo "192.168.1.28 jobcaliber.local" | sudo tee -a /etc/avahi/hosts
-  sudo systemctl restart avahi-daemon
-  ```
-
-  then `http://jobcaliber.local:8765`.
-
-**Caveats.** iOS and macOS resolve `.local` natively; **Android often does not** — there, either set
-a hostname for the machine in the router's DHCP table or use Tailscale MagicDNS, which also gives a
-valid HTTPS certificate without opening any port. `.local` does not work across networks, and guest
-Wi-Fi with client isolation blocks everything.
-
-**The app has no authentication.** Anyone on that network can read the offers, save feedback and
-press *Run now*. Keep the firewall rule narrow, remove it when you are done, or put Tailscale in
-front:
-
-```bash
-sudo firewall-cmd --remove-rich-rule='rule family="ipv4" source address="192.168.1.0/24" \
-  port port="8765" protocol="tcp" accept'
-```
+**Two processes, one contract.** The web app never runs the pipeline: it inserts a `requested`
+row into `runs` and the worker claims it. The database is the only thing they share.
 
 ## Configuration
 
-Two files, split by what a change *costs*:
+Two files, split by what a change **costs**:
 
-> **`config/profile.yaml` answers “what am I looking for and how do I judge it”. Any change to it
-> re-scores every posting. `config/settings.yaml` answers “how does the system run”: changing it never
-> re-scores anything.**
+> `config/profile.yaml` answers *what am I looking for and how do I judge it*.
+> **Changing it re-scores every posting.**
+>
+> `config/settings.yaml` answers *how does the system run*.
+> **Changing it never re-scores anything.**
 
-### `config/profile.yaml`
-
-- `search` — `titles`, `on_site_locations`, `remote_locations`, `exclude` (shown to the
-  `applicable` criterion: protected-category postings and similar) and `job_type` (`fulltime`,
-  `parttime`, … or null). Location strings are sent to the boards **verbatim**: write them the
-  way the board spells them (`Sardinia, Italy`).
-- `evaluation.systemone_min_confidence` — the confidence the decision engine reports per answer;
-  below it a posting is never `pass`, it stays `review`.
-- `criteria` — free-keyed; each one has `question` (`score` or `choice`, with `levels`/`options`
-  and the `missing` marker) and either thresholds or a `gate`. Text may use
-  `{{search.titles}}`, `{{search.on_site_locations}}`, `{{search.remote_locations}}`,
-  `{{search.exclude}}`; an unresolved placeholder fails at startup.
-
-### `config/settings.yaml`
-
-- `scraping` — `boards`, `page_size`, per-board `board_max_results`, and `board_country`
-  (which Indeed site to query; LinkedIn ignores it).
-- `schedule` — `timezone` (IANA name, **required**: `Europe/Rome`, `UTC`, …), `scrape_times`
-  (`["08:00", "13:00"]`), `backup_time`, `max_attempts`.
-- `notifications` — `base_url` (where links in a message point, i.e. the web app as the phone
-  sees it) and `telegram` (`enabled`, `chat_id`, `token_env`, `max_offers`).
-- `ai` — engines (`kind`, `api`, `base_url`, `model`, optional `api_key_env`, `headers`,
-  `options`, `throttle_s`, `retry`) and the `scorer` role.
-- `db_path`.
-
-Evaluations are keyed by the **content of `config/profile.yaml`** (plus a rubric version bumped in code
-when the questions' projection changes), so tweaking a page size, a scrape time or a token never
-invalidates what the model already answered.
-
-**Telegram.** When `notifications.telegram.enabled` is on, the end of every run sends **one
-message** containing all the postings decided `pass` in that run (never `review`/`drop`): title,
-company, score, link to the original ad, and a link to the filtered list
-(`/jobs?decisions=pass&run=<id>`). Messages are capped at 10 offers plus "…and N more", and at
-Telegram's 4096-character limit. `notified_at` makes delivery idempotent, so an offer is never
-sent twice; if Telegram is unreachable the run still ends `ok` and the offer stays queued for the
-next run. The bot token lives in `.env` (`TELEGRAM_BOT_TOKEN`), never in the config.
-
-**Time.** The database stores every timestamp in **UTC**; `scrape_times` are wall-clock times in
-`schedule.timezone`, and the web app and the CLI render UTC back into that same zone. Nothing
-depends on the machine's local timezone, so moving the database or the machine changes nothing.
-A wrong or missing `schedule.timezone` fails at startup with the expected format.
-
-**Secrets** never enter the config: engines name an environment variable (`api_key_env`) and
-`load_config()` first loads the gitignored `<repo>/.env`. A real environment variable always
-wins over the file.
-
-## Database
-
-SQLite in WAL, one file (`data/jobs.db`, gitignored). A **process may create the database but
-never alter it**: if the schema version does not match, it refuses to start and tells you what
-to run. Migrations are a deliberate, manual step:
-
-```bash
-uv run jobcaliber db migrate --dry-run   # what would change
-uv run jobcaliber db migrate             # backup + apply, one transaction per step
+```yaml
+# config/profile.yaml
+search:
+  titles: ["Software Engineer", "Embedded Software Engineer", "Backend Developer"]
+  on_site_locations: ["Sardinia, Italy"]     # sent to the boards verbatim
+  remote_locations: ["Italy"]
+  exclude: ["protected categories (law 68/99)", "internship, stage or apprenticeship"]
+  job_type: "fulltime"
+evaluation:
+  systemone_min_confidence: 0.55             # below this a posting is never `pass`
+criteria:                                    # free keys: adding one is data, not code
+  core_skills: {min_threshold: 0.5, apply_threshold: 0.67, question: {...}}
+  pay:         {apply_threshold: 0.75, question: {...}}
+  location:    {gate: {accept: ["accepted"]}, question: {...}}
 ```
 
-`migrations/` holds one immutable, numbered module per schema change; `SCHEMA_VERSION` is the
-single source of truth and is checked at import.
+- **Scored criteria** (`min_threshold` / `apply_threshold`) take a 0–1 answer. There are **no
+  weights**: the 0–100 score is the simple mean, used only to order the list. The decision comes
+  from the thresholds, so every drop has a name (`dropped_by`).
+- **Gates** (`gate: true`, `gate: {accept: [...]}`, `gate: {min_score: x}`) drop on an explicit
+  negative answer, never on a missing one.
+- **`missing`** declares, per question, which level or option means *cannot tell*.
+- Text may interpolate `{{search.titles}}`, `{{search.on_site_locations}}`,
+  `{{search.remote_locations}}`, `{{search.exclude}}`; an unresolved placeholder fails at startup.
 
-## Calibration
+Evaluations are keyed by the **content of `config/profile.yaml`**, plus a rubric version bumped in
+code when the questions' projection changes. A page size, a scrape time or a Telegram token never
+invalidate what the model already answered.
 
-The thresholds are still provisional. On a stratified sample of 61 offers, labelled by hand:
+The full reference — every key of both files, with what it does and which values fail fast — is in
+[`config/README.md`](config/README.md).
 
-| Finding | Effect |
+## The web app
+
+| Page | What it does |
 |---|---|
-| The location question was asking "which arrangement" instead of "is it acceptable" | a Turin on-site role was accepted; rewritten, the gate now drops 7 `no` and 0 good offers |
-| "Not mentioned" treated as neutral for core skills diluted the strongest criterion | as the lowest level it lifts the rank separation from AUC 0.62 to 0.72 |
-| A model-judged salary gate dropped no-salary offers | removed: `pay` missing already forces `review` |
-| The exclusion criterion answered "keep" for protected-category postings | asking the fact ("does it contain any exclusion?") with the abbreviations in the data fixed it: 5/5 |
-| No offer in the sample earned your "I would apply" | thresholds cannot be set until the web app collects real verdicts |
+| `/jobs` | the table: score, decision, title/company, board, ad location, one column per criterion. Filter panel with **one field per column** (a criterion, score, title, company, board, ad location, decision, status, run, last seen), combined with AND; every header sorts; columns selectable. |
+| `/jobs/<id>` | the offer: decision badge, score and confidence, *dropped by*, every answer next to its threshold, the original ad link, the description as markdown, and three marks: **Applied**, **Will apply**, **Not interested**. |
+| `/applications` | everything you marked, filterable, with a CSV export. |
+| `/runs` | the queue and the history: what ran, how long, what it found, and why it failed. |
 
-Consequently, the first release will run in **learning mode**: it shows `pass` **and** `review`,
-and your Sì/No becomes the labels that calibrate the thresholds.
+The mark belongs to the **posting**, not to a single evaluation, so it survives re-scoring.
+Offers you marked are never sent again by Telegram.
+
+There is **no authentication** and no JavaScript. It is meant for localhost, or for your own
+network with a firewall rule; a token can be added if you ever expose it further.
+
+## Engines
+
+The scorer is chosen in `config/settings.yaml` (`ai.engines` + `ai.roles.scorer`). Nothing in the
+code depends on which one you pick.
+
+| Engine | Kind | Where it runs | Notes |
+|---|---|---|---|
+| `rizzo` (default) | decision (`systemone`) | local, llama.cpp + Vulkan | 4B, ~6 s/offer on an iGPU; Apache-2.0. Install: [`docs/INSTALL.md`](docs/INSTALL.md#2-the-scoring-engine) |
+| `jev` | decision (`systemone`) | opencode Zen, free tier | reference engine, fast (0.3 s), stricter; needs an API key |
+| `local_llm` | llm (`openai`) | Ollama | e.g. `qwen3:8b`; ~20 s/offer, self-reported confidence |
+| `opencode_llm` | llm (`openai`) | opencode Zen | a hosted model, same interface |
+
+Adding an engine means adding a few lines under `ai.engines` (a *product* is only `base_url`,
+`model`, headers and a key). A new *wire protocol* is one file: an `AIClient` subclass registered
+with `@AIClient.register("<api>", "<kind>")`.
+
+## Operating it
+
+```bash
+uv run jobcaliber status                 # last run + notifiable offers
+uv run jobcaliber run --limit 5 --max-queries 1    # a bounded pass
+uv run jobcaliber-worker                 # schedule + queued requests (systemd keeps it alive)
+uv run jobcaliber db check               # does the database match the expected schema?
+uv run jobcaliber db backup --to data/jobs.db.bak
+uv run jobcaliber db migrate --dry-run   # migrations are manual, never automatic
+```
+
+- A full run costs one model call per new offer plus the fetch. Re-runs only score what is new.
+- The worker checks the config file's mtime on every tick and reloads it: no restart to change a
+  threshold.
+- A dead engine costs ~40 ms, not a fetch: the run probes the engine **before** scraping.
+- Logs: `journalctl --user -u jobcaliber-worker -f` for the unit, or the terminal you started it
+  from.
+
+Backups, restore, upgrades, retention and the failure matrix are in
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+## Privacy
+
+Postings, criteria and your marks stay in `data/jobs.db` on your machine. Outbound calls go only
+to the boards (during a fetch) and to the engine you configured. No LinkedIn login, no captcha
+storage, no telemetry. `config/profile.yaml`, `config/settings.yaml`, `.env` and `data/` are
+gitignored.
 
 ## Development
 
 ```bash
-uv run pytest -q                      # 172 tests, layering included
-uv run python spikes/01_fetch_coverage/fetch_coverage.py     # do the queries reach enough offers?
+uv run pytest -q          # the whole suite, layering rules included
 uv run python spikes/02_engine_benchmark/engine_benchmark.py --engine rizzo --limit 20
-uv run python spikes/03_calibration/calibrate.py rizzo       # measure against labels.yaml
+uv run python spikes/03_calibration/calibrate.py rizzo
 ```
 
-`spikes/` are throwaway experiments that must run end-to-end and report real numbers; each one
-has a README with its input/output convention. `AGENTS.md` holds the binding project rules and
-the lessons learned; `AGENT_PLAN.md` is the agent's build log.
+The layering (`core → pipeline → infrastructure → application → entrypoints`) is enforced by
+`tests/test_layers.py`; the architecture and its invariants are written down in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). `AGENTS.md` holds the rules for contributors
+(human or agent), and `spikes/` holds throwaway experiments that must report real numbers.
 
-## Privacy
+## Troubleshooting
 
-Postings, criteria and verdicts stay on your machine. Outside calls go only to the engine you
-configure. No captcha is stored, no LinkedIn login, no open ports: the web app will listen on
-localhost. `config/profile.yaml`, `config/settings.yaml`, `.env` and `data/` are gitignored and never pushed.
+| Symptom | Probably |
+|---|---|
+| the worker does nothing | nothing is due: `jobcaliber status`, then look at `runs` |
+| a run fails in milliseconds | the engine is not listening: start it, check `curl <base_url>` |
+| `SchemaMismatch` on start | the database is older/newer than the code: `jobcaliber db migrate` |
+| no `pass` for days | expected with strict thresholds; read the `review` rows and tune `apply_threshold` |
+| the page shows stale data | `Cache-Control: no-store` is on; check the build stamp in the footer |
+
+The full matrix, with the exact commands, is in
+[`docs/OPERATIONS.md#troubleshooting`](docs/OPERATIONS.md#troubleshooting).
 
 ## License
 
-To be chosen (MIT proposed).
+MIT — see [`LICENSE`](LICENSE).

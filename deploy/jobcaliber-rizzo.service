@@ -1,0 +1,17 @@
+[Unit]
+Description=rizzo-flow (local System One decision engine for jobcaliber)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/rizzo-flow
+# Downloads the llama.cpp runtime and the weights the first time:
+#   uv run rizzo download --quant q4_k_m
+ExecStart=%h/.local/bin/uv run rizzo serve --port 8017 --device auto --quant q4_k_m
+Restart=always
+RestartSec=5
+# Loading the model takes a few seconds; give it room before the first check.
+TimeoutStartSec=120
+
+[Install]
+WantedBy=default.target

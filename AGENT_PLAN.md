@@ -1,3 +1,6 @@
+> Internal chronological log (agent handoff). User-facing docs: `README.md`, `docs/INSTALL.md`,
+> `docs/OPERATIONS.md`, `docs/ARCHITECTURE.md`, `config/README.md`.
+
 > Current snapshot: see `AGENT_STATE.md` (kept short and always up to date). This file is the
 > chronological log.
 
@@ -594,3 +597,16 @@ committing `config.yaml`.
   `col/op/val/sel` rows (the always-present empty row is how a filter is added, no JS), operators and
   value controls driven by the column type, and `decisions`/`text`/`exclude_missing` kept as the
   always-visible controls. Tests 245.
+- [x] Documentation pass for the server install (2026-10-24) — `docs/INSTALL.md` (step-by-step
+  install with a check after each step, three systemd units, firewall, Telegram, final checklist,
+  upgrade/uninstall), `docs/OPERATIONS.md` (daily commands, DB queries, backup/restore, changing the
+  rules, engine benchmarks, retention, troubleshooting matrix), `docs/ARCHITECTURE.md` (layers,
+  decisions order, data model, invariants, extension points, the web split),
+  `config/README.md` (every key, and what fails fast), `deploy/README.md` + the missing
+  `jobcaliber-rizzo.service`, a rewritten `README.md`, and an accurate `AGENTS.md` (the old one
+  still described `weights`, `penalties`, `query_expander` and `src/jobcaliber/models.py`). Added
+  `LICENSE` (MIT) and a fuller `.env.example`.
+- [ ] Cleanup candidate noticed during the docs pass: `ai.prompts_dir` / `ai.custom_prompts` and
+  `PromptStore` look **dead** since the rubric became a projection — `prompts/` is empty and the
+  scorers accept `prompts` without using it. Verify and remove (config key, loader wiring, the
+  `prompts` argument of `Scorer.create`).
