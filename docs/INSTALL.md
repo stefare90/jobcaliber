@@ -348,8 +348,10 @@ sudo cp deploy/rizzo.service.example /etc/systemd/system/rizzo.service
 sudo systemctl daemon-reload                        # NOT enabled: started on demand
 ```
 
-The unit also wraps the engine in `systemd-inhibit --what=idle:sleep`: a desktop idle daemon cannot
-suspend the machine in the middle of a run, and the lock disappears with the engine.
+The unit does **not** inhibit sleep: a system service has no logind session, so polkit would refuse
+the lock and the engine would never start. Keeping the machine awake for the length of a run is the
+desktop's job — see [`docs/OPERATIONS.md`](OPERATIONS.md#the-model-host) for the one-line guard that
+makes the idle daemon skip `suspend` while `rizzo` is running.
 
 **Check:** power the machine off and look at the Ethernet LED on its case — it must stay **lit**.
 Then send a packet from the controller and watch it boot:

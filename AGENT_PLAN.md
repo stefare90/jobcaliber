@@ -695,3 +695,12 @@ committing `config.yaml`.
      engine unit now runs inside `systemd-inhibit --what=idle:sleep --who=rizzo-flow`, which holds
      the lock only while the engine is alive (`hypridle` has `ignore_systemd_inhibit = false`).
      Tests 261.
+- [x] Keeping the model host awake during a run (2026-10-25) — `hypridle` on the model host suspends
+  after 300 s idle, so an unattended run would be frozen mid-flight (and a timeout is retryable, so
+  the worker would repeat the 30-minute fetch up to three times). `systemd-inhibit` inside the system
+  unit was tried and is **not usable**: no logind session → polkit refuses the lock ("Access denied …
+  requires interactive authentication") and the engine never starts. The working solution is the
+  desktop's own decision point: `on-timeout = pgrep -f "rizzo serve" >/dev/null || systemctl suspend`
+  in `hypridle.conf` (hypridle runs listener commands through `/bin/sh -c`). The polkit rule is
+  documented as the system-level alternative. The manual "idle inhibitor" button in waybar is the
+  same idea but needs a Wayland client in the session, so it cannot be driven from the controller.

@@ -20,11 +20,11 @@ Group=stefare
 WorkingDirectory=/home/stefare/rizzo-flow
 Environment=HOME=/home/stefare
 Environment=PATH=/home/stefare/.local/bin:/usr/local/bin:/usr/bin:/bin
-# `systemd-inhibit` holds a sleep lock while the engine runs: a desktop idle daemon (hypridle,
-# PowerDevil) cannot suspend the machine in the middle of a run. The lock disappears with the
-# engine, so outside a run the machine sleeps exactly as before.
-ExecStart=/usr/bin/systemd-inhibit --what=idle:sleep --who=rizzo-flow --why="serving a jobcaliber run" \
-    /home/stefare/.local/bin/uv run rizzo serve --port 8017 --host 0.0.0.0 --device auto --quant q4_k_m
+# No `systemd-inhibit` here: a system service has no logind session, so polkit refuses the lock
+# ("Failed to inhibit: Access denied ... requires interactive authentication") and the engine would
+# never start. Keeping the machine awake during a run is the desktop's job instead — see
+# docs/OPERATIONS.md ("the model host must not sleep").
+ExecStart=/home/stefare/.local/bin/uv run rizzo serve --port 8017 --host 0.0.0.0 --device auto --quant q4_k_m
 # `systemctl stop` sends SIGTERM; without this the unit is left in `failed` even on a clean stop.
 SuccessExitStatus=143
 Restart=on-failure

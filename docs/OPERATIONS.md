@@ -183,14 +183,31 @@ controller did and why:
   To keep the machine on by hand: `sudo systemctl stop rizzo-idle-watchdog.timer`.
 - **Leave the host as you found it** is enforced: if the machine was already on when the run
   started, nothing is powered off at the end (a failure in either command never fails the run).
-- **Neither machine may sleep while it is needed.** The engine unit holds
-  `systemd-inhibit --what=idle:sleep` for as long as the engine runs, so a desktop idle daemon
-  (`hypridle`, PowerDevil) cannot suspend the host in the middle of a run — the lock disappears
-  with the engine. The **controller** must never suspend at all (it is the one that sends the
-  06:00 packet): on KDE, *Power Management → Energy Saving → Suspend session = Do nothing* (AC and
-  battery), and `~/.config/powerdevilrc` must contain `[AC][SuspendAndShutdown] AutoSuspendAction=0`.
-- If you start the engine **by hand** (not through the unit), hold the same lock yourself:
-  `systemd-inhibit --what=idle:sleep --who=rizzo --why=dev uv run rizzo serve …`.
+- **The model host must not suspend while the engine serves.** A run takes ~30 minutes with nobody
+  at the keyboard, and a suspended machine freezes the engine: the controller sees a timeout, fails
+  the run, and (timeouts are retryable) repeats it up to three times, each with a fresh fetch.
+  The engine unit deliberately does **not** take an inhibitor: a system service has no logind
+  session and polkit refuses (`Failed to inhibit: Access denied`), which would prevent the engine
+  from starting at all. Instead, make the **desktop's idle daemon** skip the suspend:
+
+  ```ini
+  # ~/.config/hypr/hypridle.conf — the last listener
+  timeout = 300
+  on-timeout = pgrep -f "rizzo serve" >/dev/null || systemctl suspend
+  ```
+
+  `hypridle` runs listener commands through `/bin/sh -c`, so the guard works as written; restart it
+  (`pkill hypridle && setsid hypridle &`, or log out and back in). On KDE (PowerDevil) there is no
+  equivalent condition: choose between never suspending the host and the system-level option below.
+
+  The system-level alternative, independent of the desktop: allow `stefare` to take sleep
+  inhibitors (`/etc/polkit-1/rules.d/49-jobcaliber-inhibit.rules` with
+  `org.freedesktop.login1.inhibit-block-sleep`/`-idle`/`-delay-sleep` → `polkit.Result.YES`) and run
+  the engine as `systemd-inhibit --what=idle:sleep --who=rizzo-flow …`.
+
+- **The controller** must never suspend at all (it is the one that sends the 06:00 packet): on KDE,
+  *Power Management → Energy Saving → Suspend session = Do nothing* (AC and battery), and
+  `~/.config/powerdevilrc` must contain `[AC][SuspendAndShutdown] AutoSuspendAction=0`.
 
 ## Retention
 
