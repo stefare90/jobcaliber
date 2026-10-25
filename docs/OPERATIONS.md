@@ -114,6 +114,24 @@ A cheap weekly cron entry is enough:
 - The web and the CLI always render the **latest** evaluation of a posting; `/runs` shows which
   run and which profile version produced it.
 
+### The profile is per machine
+
+`config/profile.yaml` and `config/settings.yaml` are gitignored: they never travel with the code.
+When the workshop and the controller are two different machines, **editing the rules in the
+workshop does not change what the controller scores** — it keeps running the copy it has. After a
+change, copy the profile over and check that the two are identical before trusting the next run:
+
+```bash
+# in the workshop
+sha256sum config/profile.yaml
+cat config/profile.yaml | ssh controller 'cat > ~/Projects/jobcaliber/config/profile.yaml'
+ssh controller 'sha256sum ~/Projects/jobcaliber/config/profile.yaml'   # same digest
+```
+
+The next run on the controller records a new profile version and re-scores everything, exactly as if
+the edit had been made there. `settings.yaml` is **not** copied: it is per machine by design (engine
+address, database path, schedule, notification links).
+
 To experiment without paying the full re-score, use a bounded run first:
 
 ```bash

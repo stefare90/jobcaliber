@@ -174,6 +174,12 @@ Two machines, two roles. **Code is written and tested in the workshop; productio
 - **The production database exists only on the controller.** A workshop run writes to
   `data/dev.db`; `data/jobs.pre-cutover.db` is a fixture (1100 real postings) for calibration and
   benchmarks, not a second source of truth.
+- **`profile.yaml` is per machine and gitignored**: editing the rules in the workshop does not reach
+  the controller. After changing them, copy the file and compare the digests before trusting the
+  next run:
+  `cat config/profile.yaml | ssh controller 'cat > ~/Projects/jobcaliber/config/profile.yaml'`, then
+  `sha256sum` on both sides. The controller then records a new profile version and re-scores.
+  `settings.yaml` is never copied: it is per machine by design.
 - Deploy = `git -C ~/Projects/jobcaliber pull --ff-only && uv sync --frozen && uv run pytest -q`
   on the controller, then `systemctl --user restart jobcaliber-web` (and the worker when enabled).
   The suite must be green on **both** machines: the Python patch versions differ, which is exactly
