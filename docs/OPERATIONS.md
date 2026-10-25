@@ -186,7 +186,7 @@ alter an existing one, so a forgotten migration stops with a message instead of 
 | Symptom | Check | Fix |
 |---|---|---|
 | the worker does nothing | `jobcaliber status`, then `SELECT * FROM runs ORDER BY id DESC LIMIT 5` | nothing is due: the next `scrape_times` slot will fire; a run can be queued from `/runs` |
-| a run fails in milliseconds with `EngineUnreachable` | `curl <engine base_url>` | start the engine (`systemctl --user start jobcaliber-rizzo`) |
+| a run fails in milliseconds with `EngineUnreachable` | `curl <engine base_url>` | start the engine (`sudo systemctl start rizzo` on the model host) |
 | `SchemaMismatch` on start | `jobcaliber db version` vs the version in the message | `jobcaliber db migrate` |
 | `no profile file found in …/config` | `ls config/` | copy the two examples (step 3 of the install) |
 | `schedule.timezone 'Europe/Roma' is not an IANA zone name` | the message lists valid examples | fix the value (`Europe/Rome`, `UTC`, …) |

@@ -1,0 +1,42 @@
+# Reference unit for the MODEL HOST, not for this repository.
+#
+# The machine that serves the model exposes "a model API on :8017" — it has no reason to know
+# that jobcaliber exists. This unit is therefore named after what it runs (`rizzo`), and the
+# controller refers to it by that name in its own configuration:
+#
+#   ai.engines.rizzo.model_host.wake_command:     ssh host 'sudo systemctl start rizzo'
+#   ai.engines.rizzo.model_host.shutdown_command: ssh host 'sudo systemctl poweroff'
+#
+# It is deliberately NOT enabled: the controller starts it on demand, after waking the machine.
+# Copy to /etc/systemd/system/rizzo.service on the model host.
+[Unit]
+Description=rizzo-flow local model API (System One wire, port 8017)
+After=network-online.target
+
+[Service]
+Type=simple
+User=stefare
+Group=stefare
+WorkingDirectory=/home/stefare/rizzo-flow
+Environment=HOME=/home/stefare
+Environment=PATH=/home/stefare/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/stefare/.local/bin/uv run rizzo serve --port 8017 --host 0.0.0.0 --device auto --quant q4_k_m
+# `systemctl stop` sends SIGTERM; without this the unit is left in `failed` even on a clean stop.
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=180
+# A previous start may have left its watchdog loaded; disarm it before arming a fresh one.
+ExecStartPre=-/usr/bin/systemctl stop rizzo-idle-watchdog.timer
+# Host policy, not consumer policy: if somebody started the model for an unattended job and never
+# came back to shut the machine down, do not stay powered on forever. Override with
+# `systemctl edit rizzo`. The timer exists only while this unit runs, and dies with the shutdown.
+#
+# `+` runs it as root: inside a system service there is no polkit session, so systemd-run as the
+# unprivileged user is denied ("requires interactive authentication") — and a failing ExecStartPost
+# kills the main process, which is how this unit once failed to start at all.
+# `-` makes a failure non-fatal: the safety net must never prevent the engine from running.
+ExecStartPost=+-/usr/bin/systemd-run --on-active=180min --unit=rizzo-idle-watchdog /usr/bin/systemctl poweroff
+
+[Install]
+WantedBy=multi-user.target

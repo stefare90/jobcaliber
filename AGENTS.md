@@ -191,6 +191,10 @@ Do **not** use it for single-implementation services (`Evaluator`, `Fetcher`) or
   create-new → copy → drop → rename, and run `PRAGMA foreign_key_check` at the end.
 - 2026-10-23: copying `jobs.db` alone can silently lose the last writes (WAL). Use
   `jobcaliber db backup`, which goes through SQLite's backup API.
+- 2026-10-24: a systemd `ExecStartPost` that fails **kills the main process**, and `systemd-run`
+  inside a system service is denied without a polkit session ("requires interactive
+  authentication"). A watchdog in `ExecStartPost` needs the `+` prefix (run as root) and `-`
+  (non-fatal), or it turns a safety net into an outage.
 - 2026-10-23: Ollama reasoning models (qwen3.5, granite 4.2) spend the whole answer budget on
   "thinking" unless the request carries `reasoning_effort: "none"`; without it every call timed out
   at 120 s.

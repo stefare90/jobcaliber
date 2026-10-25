@@ -10,7 +10,11 @@ The end state:
 |---|---|---|
 | `jobcaliber-worker` | systemd user unit | — (it calls the boards and the engine) |
 | `jobcaliber-web` | systemd user unit | `0.0.0.0:8000` (LAN, firewall-restricted) |
-| `rizzo` (scoring engine) | systemd user unit | `127.0.0.1:8017` |
+| `rizzo` (scoring engine) | system unit on the **model host**, started on demand | `0.0.0.0:8017` |
+
+> **Single machine?** All three run on it; the engine as a system unit started by the worker
+> (see step 6). **Two machines?** The controller runs web + worker, the model host runs only the
+> engine — see [the split setup](#split-setup-controller--model-host).
 
 Total disk: ~5 GB. No root is needed except for the firewall.
 
@@ -205,23 +209,27 @@ back up working.
 ```bash
 cd ~/jobcaliber
 mkdir -p ~/.config/systemd/user
-
-# adjust the paths and the port in the three files first if needed
 cp deploy/jobcaliber-worker.service deploy/jobcaliber-web.service ~/.config/systemd/user/
-cp deploy/jobcaliber-rizzo.service ~/.config/systemd/user/
-# the rizzo unit expects the engine in ~/rizzo-flow with the Config args below
-
 systemctl --user daemon-reload
-systemctl --user enable --now jobcaliber-rizzo jobcaliber-worker jobcaliber-web
+systemctl --user enable --now jobcaliber-worker jobcaliber-web
+loginctl enable-linger "$USER"          # keep them running after logout and at boot
+```
 
-# keep the user manager running after logout / at boot
-loginctl enable-linger "$USER"
+The engine is a **system** unit, named after what it runs (`rizzo`), and it is **not enabled**: the
+worker starts it on demand (and the model host's own watchdog powers the machine off if nobody
+shuts it down).
+
+```bash
+sudo cp deploy/rizzo.service.example /etc/systemd/system/rizzo.service
+sudo systemctl daemon-reload
+sudo systemctl start rizzo          # once, to check it answers
 ```
 
 **Check**
 
 ```bash
-systemctl --user --no-pager status jobcaliber-rizzo jobcaliber-worker jobcaliber-web | grep -E "●|Active"
+systemctl --user --no-pager status jobcaliber-worker jobcaliber-web | grep -E "●|Active"
+systemctl status rizzo --no-pager | head -3
 journalctl --user -u jobcaliber-worker -n 20 --no-pager
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/healthz     # 200
 ```
@@ -265,7 +273,8 @@ sudo systemctl restart avahi-daemon
 ```bash
 curl -s http://127.0.0.1:8017/v1/models > /dev/null      && echo "engine ok"
 curl -s -o /dev/null -w 'web %{http_code}\n' http://127.0.0.1:8000/healthz
-systemctl --user is-active jobcaliber-rizzo jobcaliber-worker jobcaliber-web
+systemctl --user is-active jobcaliber-worker jobcaliber-web
+systemctl is-active rizzo
 uv run jobcaliber status | head -3
 uv run jobcaliber db check
 uv run python -c "from pathlib import Path; from jobcaliber.bootstrap import build_context; \
@@ -299,7 +308,8 @@ never overwritten by an upgrade.
 ## Uninstalling
 
 ```bash
-systemctl --user disable --now jobcaliber-web jobcaliber-worker jobcaliber-rizzo
+systemctl --user disable --now jobcaliber-web jobcaliber-worker
+sudo systemctl disable --now rizzo 2>/dev/null
 rm -f ~/.config/systemd/user/jobcaliber-*.service
 rm -rf ~/jobcaliber ~/rizzo-flow
 ```

@@ -138,6 +138,32 @@ ai:
 - `retry` applies to transient failures only (429/5xx); `throttle_s` paces the calls.
 - `roles.scorer` must name one of the engines and must accept the role's kind.
 
+### `ai.engines.<name>.model_host` (optional)
+
+Only for an engine that lives on **another machine** that can be powered on and off. The
+controller owns the policy; the host only exposes three commands.
+
+| Key | Meaning |
+|---|---|
+| `address` | the machine's IP. **Required** when `wake_on_lan` or `poweroff_command` is set: without it the controller cannot tell whether the machine was already on, and could power off a host someone was using |
+| `ssh_port` | port used to check that the machine is up (default 22) |
+| `wake_on_lan` | `{mac, broadcast, wait_s}`: the magic packet. `wait_s` (5–900) is how long to wait for the machine *and* the engine |
+| `start_command` | run when the engine is down (typically `ssh … 'sudo systemctl start rizzo'`) |
+| `stop_command` | run at the end **only if** the engine was down and the machine was already on |
+| `poweroff_command` | run at the end **only if** the controller powered the machine on |
+
+The rule is *leave the host as you found it*:
+
+| found | does | at the end |
+|---|---|---|
+| machine off | magic packet → wait → `start_command` | `poweroff_command` |
+| machine on, engine off | `start_command` | `stop_command` (machine stays on) |
+| machine on, engine on | nothing | nothing |
+
+Every command is best effort **at the end** (a failure never marks a good run as failed); a
+failure *before* the fetch is fatal and not retryable, because a machine that does not wake will not
+wake on a retry either.
+
 ### `db_path`
 
 `./data/jobs.db` by default. A relative path is resolved against the project root.
