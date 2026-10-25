@@ -2,191 +2,182 @@
 
 > Internal handoff for the agent working on this repo. For users and for a fresh
 > install, start from [`README.md`](README.md) and [`docs/INSTALL.md`](docs/INSTALL.md).
-> This file is the "where we are right now"; `AGENT_PLAN.md` is the log.
+> This file is the "where we are right now"; `AGENT_PLAN.md` is the log, `AGENTS.md` the rules.
 
-Dense handoff for a fresh context. History and decisions live in `AGENT_PLAN.md`; binding rules in
-`AGENTS.md`; user-facing docs in `README.md`. This file is the "where we are right now".
-
-Last updated: 2026-10-22 · tests: **201 passing** · branch `main`, pushed.
+Last updated: 2026-10-25 · tests: **261 passing** · branch `main` @ `44c3e8b`, pushed, both
+machines at the same commit.
 
 ## What jobcaliber is
 
 A personal, local job-offer ranker. Every morning it queries LinkedIn + Indeed for the configured
-titles/locations, scores each new offer against the user's own criteria with a **local decision
-model** (rizzo-flow on `127.0.0.1:8017`), decides `pass`/`review`/`drop`, stores everything in
-SQLite, and shows it in a local web app where the user marks 👍/👎 (the feedback that will
-calibrate the thresholds). Never re-scores the same offer with the same config, never re-notifies.
+titles/locations, scores every new offer against the user's own criteria with a **pluggable**
+engine (default `rizzo`, a local 4B decision model on the model host), decides
+`pass`/`review`/`drop`, stores everything in SQLite, shows it in a local web app where the user
+marks the offer (`applied`/`planned`/`skipped`), and sends a Telegram digest. It never re-scores
+the same offer with the same config+engine and never re-notifies.
 
 ## Architecture (layers, enforced by `tests/test_layers.py`)
 
 ```
 src/jobcaliber/
-├── core/            domain.py (JobPosting, ScoringResult, EvaluationResult, GateDecision)
-│                    config/ (search.py, criteria.py, ai.py, settings.py, app.py) — no I/O
-├── pipeline/        one folder per step
+├── core/            domain.py · formatting.py (UTC → local)
+│                    config/ (search, criteria, ai, settings, app) — no I/O
+├── pipeline/
 │   ├── fetch/       models.py (Query, FetchStats) · queries.py · parsing.py · fetcher.py
-│   ├── scoring/     scorer/ (base.py ABC + system_one.py + llm.py) · projection/ (systemone/llm)
-│   └── evaluation/  evaluator.py (gates → thresholds → decision)
-├── infrastructure/  database/ (store.py, schema.py, schema.sql, migrations/, migrations runner)
-│                    ai/ (client/base.py ABC + system_one/llm + prompts.py) · config_loader.py · env.py
-├── application/     runner.py (run_once) · worker.py (loop, claim, retry, hot reload)
-│                    schedule.py (is_due) · clients.py (AIClients: transports → services)
+│   ├── scoring/     scorer/ (base.py ABC + system_one.py + llm.py)
+│   │                projection/ (systemone.py, llm.py — rubrics from `criteria`)
+│   └── evaluation/  evaluator.py (gates → thresholds → decision → confidence)
+├── infrastructure/  database/ (store.py, schema.sql, schema_version.py, migrations/, migrate.py)
+│                    ai/ (client/base.py ABC + system_one/llm, prompts.py)
+│                    model_host.py · notify/telegram.py · config_loader.py · env.py
+├── application/     runner.py (run_once) · worker.py (poll, claim, retry, hot reload)
+│                    schedule.py (is_due) · clients.py (transports → services)
 ├── entrypoints/     cli.py (`jobcaliber`) · worker.py (`jobcaliber-worker`)
-│                    web/ (app wiring + routes in routes.py, query-string logic in filters.py,
-│                          query -> view data in readmodels.py, templates/, static/)
-└── bootstrap.py     build_context() → AppContext(root, config, raw_yaml, store, engine)
+│                    web/ (routes.py, filters.py — HTTP-free, readmodels.py, templates/, static/)
+└── bootstrap.py     build_context() → AppContext(root, config, raw_yaml, store, engine, tz)
 ```
 
-Dependency direction: `entrypoints` → `application` → `pipeline`/`infrastructure` → `core`.
-Entry points are the only place allowed to import everything.
+Direction: `entrypoints` → `application` → `pipeline`/`infrastructure` → `core`. Only entrypoints
+may import everything.
 
 ## Invariants (do not break without a decision)
 
-1. **A missing answer never drops.** `missing` → neutral 0.5, confidence penalty, forced REVIEW.
-2. **Gates drop only on an explicit negative answer** (`gate: true` → answer must be `yes`;
-   `gate: {accept: […]}`; `gate: {min_score: x}`).
-3. **Re-scoring key** = `UNIQUE(job_id, config_v, engine)`: same config+engine is a no-op, a new
-   config or engine re-scores everything.
-4. **A run probes the engine before fetching**: `AIClient.probe()` (TCP connect) is called
-   before `_collect`, so a dead engine costs ~40 ms instead of a whole fetch (~28 min). That
-   failure is **not retried** (`RunOutcome.retryable = False`): retrying cannot fix a stopped
-   service, and the worker must not burn its 3 attempts on it.
-5. **Config split by cost**: `profile.yaml` (search + evaluation + criteria) keys the evaluations
-   (`config_versions(v, yaml, sha)` over the profile text + `RUBRIC_VERSION`); `config/settings.yaml`
-   (scraping, schedule, notifications, ai, db_path) never re-scores. A key declared in both files
-   is rejected. Same content → same version; new profile → new version.
-6. **Schema changes are manual**: `Store` *creates* an empty DB, never alters an existing one;
-   `jobcaliber db migrate` applies migrations (backup + one transaction per step). `db check`
-   diffs the live schema against `schema.sql`.
-7. **The web is read-mostly**: it may write only `feedback` (upsert) and `runs(status='requested')`
-   — enforced by a test on the allowed `Store` methods.
-8. **No criterion name, threshold or heuristic is hardcoded** anywhere (web, evaluator, fetch).
-9. **English only** in the repo (code, docs, UI strings, commit messages). Chat may be Italian.
-10. **Nothing is implemented before the user agrees** (`AGENTS.md` §0, absolute).
+1. **A missing answer never drops**: it forces `review` and is exempt from thresholds. `missing`
+   in a criterion names the level an absent answer gets (unless `missing: null`).
+2. **Gates drop only on an explicit negative**: `gate: true` (answer must be `yes`),
+   `gate: {accept: [...]}`, `gate: {min_score: x}`.
+3. **Re-scoring key** = `UNIQUE(job_id, config_v, engine)`: same profile+engine is a no-op; a new
+   profile or engine re-scores everything. `score_total` is the plain mean, ordering only; every
+   drop names its rule (`dropped_by`). No weights, no penalties.
+4. **Config split by cost**: `config/profile.yaml` (search + evaluation + criteria) keys the
+   evaluations (`config_versions` over the profile text + `RUBRIC_VERSION` in code);
+   `config/settings.yaml` (db_path, scraping, schedule, notifications, ai) never re-scores. A key
+   in both files is an error. Templates: `config/*.example.yaml`.
+5. **The engine is probed before the fetch** (`AIClient.probe()`, TCP connect): a dead engine fails
+   in ~40 ms, not after a 25-minute fetch, and is **not retried**.
+6. **Schema changes are manual**: a process creates an empty DB, never alters one (`SchemaMismatch`);
+   `jobcaliber db migrate` backs up and applies one transaction per step. `migrations/` is
+   append-only; `SCHEMA_VERSION` is asserted at import. Live schema **v4**.
+7. **The web is read-mostly**: it may write only the application marks and `runs(status='requested')`
+   — asserted by a test on the allowed `Store` methods.
+8. **No criterion name, threshold or heuristic hardcoded** anywhere; web columns and filters come
+   from `config.criteria`.
+9. **English only** in the repo (code, docs, UI, commit messages); chat may be Italian.
+10. **Nothing is implemented before the user agrees** (`AGENTS.md` §0); commits/pushes need approval.
 
-## Two machines
+## Two machines (code via git, config/`.env` per machine, DB only on the controller)
 
-- **Workshop** = `stefare-PC` (this one): code, tests, spikes, rizzo on the iGPU. DB: `data/dev.db`.
-- **Production** = `stefare-optiplex3050` (mini-PC, 4 cores): `jobcaliber-web` on :8000, the worker,
-  and the **only** database (`data/jobs.pre-cutover.db` is the workshop's fixture).
-- Link: direct cable `10.10.0.1 ↔ 10.10.0.2`, no gateway on it (internet stays on Wi-Fi). The
-  controller wakes the host with a magic packet and controls `rizzo` over three forced SSH keys
-  (`host-start`, `host-stop`, `host-poweroff`), sudoers-limited to those commands.
-- Deploy: `git pull --ff-only && uv sync --frozen && pytest` on the controller, then restart the
-  unit. Config and `.env` are per machine and never travel.
+| | workshop = model host (`stefare-PC`) | production = controller (`stefare-optiplex3050`) |
+|---|---|---|
+| role | edits, tests, spikes, the engine | web :8000, worker, the **only** DB |
+| address | `10.10.0.2` (cable) · `192.168.1.28` (Wi-Fi) | `10.10.0.1` (cable) · `192.168.1.240` (Wi-Fi, static) |
+| python | 3.14.8 | 3.14.4 |
+| data | `data/dev.db` (throwaway) + `data/jobs.pre-cutover.db` (fixture) | `data/jobs.db` |
+
+- Direct cable between the machines, **no gateway** on it (internet stays on Wi-Fi).
+- The controller wakes the host (WoL `magic`, **29 s from S5**), starts/stops `rizzo` and powers
+  the machine off through three forced-command SSH keys (`host-start`, `host-stop`,
+  `host-poweroff` = `~/.ssh/host-*`), sudoers-limited to `systemctl start|stop rizzo` and
+  `poweroff`. Rule: **leave the host as you found it**.
+- `rizzo.service` (system unit on the host, from `deploy/rizzo.service.example`, **not enabled**):
+  `SuccessExitStatus=143`, `ExecStartPre` disarm, `ExecStartPost` arms a 3 h `poweroff` watchdog,
+  `ExecStopPost` disarms it (the timer lives exactly as long as the engine).
+- **The host must not suspend during a run** (~30 min, nobody at the keyboard): the unit does *not*
+  use `systemd-inhibit` (a system service has no logind session → polkit denies → the engine never
+  starts). The guard is in `~/.config/hypr/hypridle.conf`:
+  `on-timeout = systemctl is-active --quiet rizzo || systemctl suspend`.
+- Deploy: `git pull --ff-only && uv sync --frozen && uv run pytest -q` on the controller, then
+  `systemctl --user restart jobcaliber-web` (and the worker when enabled). Green on **both** machines.
 
 ## Commands
 
 ```bash
-uv sync --frozen && uv run pytest -q          # 201 tests
-uv run jobcaliber run --limit 5 --max-queries 1   # one bounded pass
-uv run jobcaliber run --dry-run                   # nothing written
+uv sync --frozen && uv run pytest -q                 # 261 tests
+uv run jobcaliber run [--limit N --max-queries M --dry-run --engine NAME]
 uv run jobcaliber status | jobs --decision review
-uv run jobcaliber db version | check | migrate --dry-run | migrate | backup
-uv run jobcaliber-worker --poll 5                 # loop (systemd keeps it alive)
-uv run jobcaliber-worker --once                   # one tick (queue check / post-deploy)
-uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --port 8765
+uv run jobcaliber db version | check | backup [--to PATH] | migrate [--dry-run]
+uv run jobcaliber-worker [--poll S] [--once]
+uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-Engines: `rizzo` (local, needs `cd ~/rizzo-flow && uv run rizzo serve --port 8017 --device auto
---quant q4_k_m`), `jev` (opencode System One, free tier, `OPENCODE_API_KEY` in `.env`),
-`local_llm` (Ollama qwen3:8b), `opencode_llm` (deepseek via `/inference/go/v1` + `x-opencode-session`
-header). Default `roles: {scorer: rizzo}`.
+Engines (`ai.engines`, keyed by wire api `systemone`/`openai`, not by product): `rizzo`
+(`127.0.0.1:8017`, production scorer), `onejev` (:8018, rejected: fast but blind), `jev`
+(opencode gateway, free tier throttles), `qwen3_llm`/`qwen35_llm`/`granite_llm` (Ollama,
+`reasoning_effort: none` required), `opencode_llm` (deepseek via `/inference/go/v1` + session
+header). `ai.roles.scorer` picks the default.
 
-## Current data (production DB on the controller, gitignored)
+## Current data (production DB, gitignored)
 
-- **1101 jobs · 2129 evaluations · 5 applications · 12 runs · `config_v 3`** (2026-10-25).
-- The workshop keeps `data/dev.db` (throwaway) and `data/jobs.pre-cutover.db` (fixture with the
-  history at the moment of the split, for calibration and benchmarks).
+- **1139 jobs · ~2167 evaluations · 5 applications · run 13 ok · `config_v 3` · schema v4**.
 - Criteria: `core_skills`, `tools`, `role_fit` (min .5 / apply .67), `pay` (apply .75),
-  `location` (choice gate accept accepted/rejected/unknown), `applicable` (bool gate, `in_table:
-  false`), `contract_ok` (bool gate).
-- Thresholds: notify 70, review 60, min confidence 0.55. Schedule **06:00** (one run a day) in
-  `Europe/Rome`, retries 3.
-- Search: 4 titles × `Sardinia, Italy` (on-site) + `Italy` (remote).
+  `location` (choice gate `accept: [accepted]`), `applicable` (choice gate), `contract_ok`
+  (bool gate).
+- Schedule **06:00** in `Europe/Rome` (one run a day), 8 queries × 2 boards ≈ 1609 rows in 25–35 min,
+  scoring ~6.6 s/offer on the iGPU. Run 13: 38 new, 31 drop / 7 review / 0 pass, 33 min.
+- **165 `review` in the notification backlog** (left by user choice; the next digest lists them).
 
-## Web (implemented, verified in a browser)
+## Web (verified in a browser)
 
-- `/jobs` — table with **dynamic criterion columns** (default = criteria with `in_table: true`),
-  collapsed filter panel with **cards** on 3 columns (Run, Text incl. "Ad location", Board,
-  Decision, Criterion, Columns picker at 3 columns), chips summarising active filters, sortable
-  headers incl. `sort=crit:<name>`, pagination.
-- `/jobs/<id>` — decision badge, score/confidence, `dropped by`, answers vs thresholds, link to the
-  ad, **markdown description** (markdown-it-py, `html=False` → raw HTML escaped), 👍/👎 feedback.
-- `/runs` — queue + history, auto-refresh while a request is pending; `POST /run` enqueues.
-- Light/dark via `prefers-color-scheme` (variable palette, `color-scheme: light dark`).
-- The detail link carries the list query string, so "back" restores page, filters and columns.
+- `/jobs` — one filter field per column (all AND, groups: score & decision · job · criteria ·
+  status & dates), "show columns" sub-box, Apply/Reset, sortable headers, pagination; criteria
+  columns and filters generated from config. Logic in `entrypoints/web/filters.py` (no HTTP, no
+  FastAPI — a test asserts it).
+- `/jobs/<id>` — decision, score/confidence, `dropped by`, answers vs thresholds, ad link, markdown
+  description (raw HTML escaped), three mark buttons + undo, back-link restoring filters/sort/page.
+- `/runs` — queue + history, auto-refresh while a request is pending. `/applications` + `.csv`.
+- `/run` enqueues (`runs.status='requested'`); the web never runs the pipeline. Light/dark automatic.
+
+## Notifications
+
+Telegram digest per run with every new **pass and review** not marked applied/skipped; header counts
+pass/review; each line labels the decision and links `/jobs?decisions=pass,review&run=<id>`; 10 then
+"…and N more"; HTML escaped; 4096-char cap; `notified_at` for idempotency; a delivery failure never
+fails the run. Bot `@jobcaliber_bot`, chat id in settings, token in `.env` (600, both machines).
 
 ## Traps learned (do not re-discover)
 
-- **Time**: the DB is UTC (`datetime('now')`), `schedule.timezone` (IANA, required) defines the
-  wall clock of `scrape_times` and of every rendered date; `AppContext.tz` is resolved once in
-  `bootstrap`, `is_due` compares UTC instants, `core/formatting.local_time` is the only formatter
-  (web filter + CLI, and the notifier later). Never call a bare `astimezone()`.
-- **`penalties` were dead code**: a penalty only applies when an answer is missing, and a missing
-  answer returns REVIEW *before* confidence is read — so a penalty could never change a decision.
-  Removed. `missing` alone forces REVIEW.
-- **SQLite `datetime('now')` is UTC, the schedule is local**: comparing them raw made every
-  scheduled run look two hours old, so the worker started a new one on every poll. `is_due` now
-  interprets the stored value as UTC and builds the slots in `schedule.timezone`.
-- **YAML 1.1**: bare `yes`/`no` are booleans — quote option keys and label verdicts.
-- **HTML hrefs in tests are escaped** (`&amp;`): `html.unescape` before following them.
-- The System One wire **rejects extra fields** (`missing_level`/`missing_choice` stay in config).
-- SQLite cannot alter a `CHECK`: table rebuild = create new → copy → drop old → rename, with
-  `PRAGMA foreign_keys=OFF` around it (renaming the old table rewrites other tables' FKs).
-- Ollama qwen3 emits `reasoning` and never returns JSON unless `reasoning_effort: "none"`.
-- `localhost:8000` is taken by VS Code on this machine; use 8765.
-- `firewalld` is **active** here; port must be opened for LAN access. Machine IP `192.168.1.28`
-  (wlan0), hostname `stefare-PC`, Avahi active.
-- A full first run on an empty DB is ~1.5-2h (fetch ~25 min + ~900 postings × 5 s).
+- **Time**: the DB is UTC; `schedule.timezone` (IANA, required) defines `scrape_times` and rendered
+  dates; `AppContext.tz` resolved once; `core/formatting.local_time` is the only formatter. Comparing
+  a stored UTC timestamp with `datetime.now()` made the worker run on every poll.
+- **`pgrep -f <pattern>` matches its own shell**: a `pgrep -f "rizzo serve"` guard in hypridle would
+  always match, so the machine would never suspend (same class of bug as `pkill -f` killing the
+  session). Use `systemctl is-active --quiet rizzo`.
+- **`systemd-inhibit`/`systemd-run` in a system service have no polkit session**: `Access denied …
+  requires interactive authentication`. Inside a unit prefix with `+` (run as root); a failing
+  `ExecStartPost` **kills the main process** (hence `-` for non-fatal).
+- **`systemctl stop` exits 143**: `SuccessExitStatus=143` or the unit looks `failed` after a clean stop.
+- **Watchdog must die with the engine**: an `ExecStartPost` timer that is never disarmed powers the
+  machine off at +3 h, e.g. at 09:00 while the user works (`ExecStopPost` fixes it).
+- **hypridle only suspends on compositor idle**: the waybar `idle_inhibitor` button is the Wayland
+  idle-inhibit protocol (needs a client in the session), cannot be driven from the controller.
+- **Copying `jobs.db` alone loses writes (WAL)**: use `jobcaliber db backup`. A v4 migration on a
+  plain copy found 0 rows for exactly this reason.
+- **YAML 1.1**: bare `yes`/`no` are booleans — quote option keys and verdict labels.
+- **HTML hrefs in tests are escaped** (`&amp;`) — `html.unescape` before following them.
+- **System One wire rejects extra fields** (`missing_level`/`missing_choice` stay in config).
+- **SQLite cannot alter a `CHECK`**: create new → copy → drop old → rename; renaming rewrites
+  other tables' FKs, so `PRAGMA foreign_key_check` at the end.
+- **Ollama reasoning models** spend the answer budget thinking unless `reasoning_effort: "none"`.
+- **Avahi cannot alias its own machine** (`Local name collision`), and `firewalld` blocks mDNS 5353.
+- **OneJev 0.8B rejected**: 1.31 s/offer but 74% missing on `core_skills` and two criteria inverted.
 
-## Notifications (implemented 2026-10-23)
+## Open work / next steps
 
-`infrastructure/notify/telegram.py` (httpx, no framework): one digest per run with every new
-`pass` posting, ad link + `/jobs?decisions=pass&run=<id>`; 10 offers then "…and N more"; HTML
-escaped; 4096-char cap; `notified_at` for idempotency; a delivery error never fails the run.
-Bot `@jobcaliber_bot`, chat id in gitignored `config/settings.yaml`, token in `.env`.
-
-## Applications (implemented 2026-10-23)
-
-`applications(job_id PK, state ∈ applied|planned|skipped, source, note, created_at, updated_at)`
-replaces `feedback`: the mark belongs to the **posting**, not to the evaluation, so a re-score no
-longer orphans it. Schema v4; the five old verdicts were migrated (`good → planned`,
-`bad → skipped`, `source = feedback:<verdict>`, original timestamps kept). Web: three buttons on
-the detail page, a `status` column + `state=` filter in the list, `/applications` and
-`/applications.csv`. Telegram skips any posting that has a mark.
-
-## Open work
-
-- **Done 2026-10-23**: multi-row filters — `Filter(column, op, value|values|text)` in the store,
-  rows serialised as repeated `col/op/val/sel` params, one row per condition combined with AND, and
-  every column filterable (criteria as `crit:<name>`, score, confidence, salary, title, company,
-  location, decision, board, status, run, last seen). The empty row at the bottom is how a filter
-  gets added: no JavaScript.
-
-- **Done 2026-10-25**: `model_host` — the controller wakes the engine machine on demand, starts and
-  stops the service and powers the machine off, leaving the host as it found it (test suite 259).
-  Controller BIOS: *Restore AC Power Loss = Power On* (the only hardening wanted; masking
-  `sleep.target` was rejected).
-- Deferred: nightly backup, model calibration, live run counters, config editor + profile diff.
-- At the server: systemd units on the controller (web + worker) and `rizzo.service` on the model
-  host; engine choice for the i5 if it ever becomes the model host.
-
-## Next steps
-
-1. **First unattended run**: the worker is enabled on the controller and runs at 06:00 — it wakes
-   the model host, fetches, scores, notifies and powers the host off. Watch the first night from
-   `/runs` and `journalctl --user -u jobcaliber-worker`.
-2. **Calibration on real verdicts**: the ledger gives labels (applied/will apply vs skipped).
-   Extend `spikes/03_calibration/calibrate.py` to read them from the DB, then tune
-   `min_threshold`/`apply_threshold` (and decide on `tools` and `contract_ok`, AUC ≈ 0.51/0.52).
-3. **Nightly backup** on the controller (the ledger is not reconstructible): a timer running
-   `jobcaliber db backup`, keeping N copies.
-4. **Config editor** (profile in the DB, YAML as import/export) with a diff between `config_v`
-   versions — the last real feature.
+1. **First fully unattended run** (06:00, worker enabled): wake → fetch → score → digest → poweroff.
+   Confirm from `/runs`, `journalctl --user -u jobcaliber-worker`, and `systemd-inhibit --list`.
+2. **Backlog**: the 165 `review` postings will appear in the next digest; decide whether to re-score
+   them (`--engine`, profile unchanged) or mark them in bulk.
+3. **Calibration on real verdicts**: extend `spikes/03_calibration/calibrate.py` to read labels from
+   the ledger (`applied`/`planned` vs `skipped`) and tune thresholds (`pay` 0.75 blocks 5/7 reviews;
+   `tools`/`contract_ok` AUC ≈ 0.51/0.52 — near noise).
+4. **Nightly backup** on the controller (`schedule.backup_time` is still dead config; the ledger is
+   not reconstructible).
+5. **Config editor**: profile versioned in the DB, YAML import/export, diff between `config_v`.
+6. Small: `PYTHONUNBUFFERED=1` in the worker unit (journal shows only JobSpy lines); highlight the
+   failing criterion on the detail page ("why is this review?").
 
 ## Open questions for the user
 
-- Telegram: digest only, or instant alerts above threshold too?
-- Calibration: how many verdicts before tuning thresholds (suggest ≥30)?
+- Bulk handling of the `review` backlog: re-score, or mark in bulk?
+- Calibration: how many verdicts before tuning thresholds (suggest ≥ 30)?
 - Dark mode: keep automatic, or add a manual toggle (needs a preference + JS)?
