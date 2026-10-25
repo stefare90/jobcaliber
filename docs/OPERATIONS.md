@@ -147,6 +147,29 @@ If the engine is down, the run fails in ~40 ms (before the fetch) and is **not**
 stopped service does not fix itself, and three retries would waste three fetches. Start the engine
 and press *Run now*.
 
+## The model host
+
+When the engine lives on another machine (see `docs/INSTALL.md`), the run's log tells you what the
+controller did and why:
+
+| line | meaning |
+|---|---|
+| `model host: waking 10.10.0.2` | the machine was off and a magic packet was sent |
+| `model host: machine already on, starting the engine` | the machine was up, the engine was not |
+| `model host: engine ready after about Ns` | the engine answers; the run continues |
+| `model host: stopping the engine (the machine stays on)` | the controller started it, so it stops it — the machine was already on |
+| `model host: powering the machine off` | the controller woke the machine, so it powers it off |
+
+- **The engine unit on the host arms a 3 hour `poweroff` watchdog** (`ExecStartPost`). It exists so a
+  machine started for an unattended run cannot stay on forever, and it dies with the shutdown.
+  To keep the machine on by hand: `sudo systemctl stop rizzo-idle-watchdog.timer`.
+- **Leave the host as you found it** is enforced: if the machine was already on when the run
+  started, nothing is powered off at the end (a failure in either command never fails the run).
+- The host must not sleep: on KDE, *Power Management → Energy Saving → Suspend session = Do
+  nothing* (on AC and battery), and check that `~/.config/powerdevilrc` contains
+  `[AC][SuspendAndShutdown] AutoSuspendAction=0`. A controller that suspends never sends the
+  06:00 packet.
+
 ## Retention
 
 Nothing is deleted automatically. Deleting rows is rarely the right move:
@@ -195,6 +218,8 @@ alter an existing one, so a forgotten migration stops with a message instead of 
 | Telegram silent although there are `pass` offers | `applications` table, `notified_at` | marked or already notified offers are not re-sent; check `enabled`, `chat_id`, the token in `.env` |
 | Telegram error at startup | `notifications.telegram.enabled` without `chat_id`, or the token variable empty | fix one of the two; the message says which |
 | the page is stale | the build stamp in the footer | hard-reload; responses carry `Cache-Control: no-store` |
+| `model host did not answer within Ns` | `ping <address>`, then `ssh -i ~/.ssh/host-start host` by hand | the machine did not wake (BIOS ErP/`Resume By PCI-E`), or the engine unit failed: `journalctl -u rizzo` on the host |
+| the host stays on after a run that woke it | `/runs` error column, `journalctl --user -u jobcaliber-worker` | `poweroff_command` failed (sudoers rule missing?) — it is best effort, so the run is still `ok` |
 | a run is `running` after a crash | `jobcaliber status` | the next tick marks it `failed` (`process died`) and the offer stays pending |
 
 When in doubt, the two commands that answer most questions:

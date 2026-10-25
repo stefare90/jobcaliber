@@ -289,6 +289,155 @@ the web shows the results, and Telegram tells you when a new offer is worth open
 
 ---
 
+## Split setup: controller + model host
+
+One machine for everything is fine. When the model needs more hardware than the always-on box has,
+split the roles: an always-on **controller** (web, worker, database, fetch) and a **model host**
+that holds only the engine and is powered on for the length of a run.
+
+```
+controller (always on)                          model host (on demand)
+web :8000 · worker · database · fetch           rizzo :8017 · only the model
+   └──── magic packet + ssh start / stop / poweroff ────────┘
+```
+
+The controller owns the policy; the host exposes three elementary commands and knows nothing about
+jobcaliber. The rule is **leave the host as you found it**: if it was already on, nothing is powered
+off at the end.
+
+### 1. A private link between the two machines
+
+A direct Ethernet cable, static addresses, and **no gateway on that link** so the internet keeps
+flowing through Wi-Fi (see [step 2 of the single-machine install](#0-prerequisites) for `nmcli` in
+general):
+
+```bash
+# controller
+sudo nmcli con add type ethernet ifname enp2s0 con-name minipc-link \
+  ipv4.method manual ipv4.addresses 10.10.0.1/24 ipv4.never-default yes ipv6.method ignore
+sudo nmcli con up minipc-link
+
+# model host
+sudo nmcli con add type ethernet ifname enp5s0 con-name minipc-link \
+  ipv4.method manual ipv4.addresses 10.10.0.2/24 ipv4.never-default yes ipv6.method ignore
+sudo nmcli con up minipc-link
+```
+
+**Check:** `ping` both ways (≈0.5 ms on the cable) and, on **both** machines,
+`ip route get 1.1.1.1` still names the Wi-Fi interface.
+
+### 2. The model host
+
+**BIOS** (this is the part that silently fails):
+
+| option | value | why |
+|---|---|---|
+| *Wake on LAN* / *Resume By PCI-E Device* / *Power On By PCI-E* | **Enabled** | accepts the magic packet from S5 |
+| *ErP Ready* / *EuP* | **Disabled** | ErP cuts the +5VSB rail the NIC needs while the machine is off; the port LED goes dark and no packet can wake it |
+| *Fast Boot* | **Disabled** | some boards skip peripheral initialisation before S5 |
+| *Restore AC Power Loss* (on the **controller**) | **Power On** | comes back after a blackout |
+
+Operating system, on the host:
+
+```bash
+sudo systemctl enable --now ssh                  # the controller uses it for start/stop/poweroff
+sudo ethtool enp5s0 | grep -A1 "Supports Wake-on"   # expect: pumbg
+sudo ethtool -s enp5s0 wol g                        # arm the magic packet
+sudo nmcli con modify minipc-link 802-3-ethernet.wake-on-lan magic
+sudo cp deploy/rizzo.service.example /etc/systemd/system/rizzo.service
+sudo systemctl daemon-reload                        # NOT enabled: started on demand
+```
+
+**Check:** power the machine off and look at the Ethernet LED on its case — it must stay **lit**.
+Then send a packet from the controller and watch it boot:
+
+```bash
+time ssh host true                                   # ~20-40 s
+```
+
+### 3. Three keys, three capabilities
+
+`authorized_keys` applies `command=` per **line**, and sshd uses the first line that matches the
+key, so one key cannot offer a choice of commands: use one key per capability, on the controller.
+
+```bash
+for k in start stop poweroff; do ssh-keygen -t ed25519 -N "" -C "jobcaliber-$k@controller" -f ~/.ssh/host-$k; done
+cat ~/.ssh/host-*.pub
+```
+
+On the host, in `~/.ssh/authorized_keys` (one line each):
+
+```
+command="sudo /usr/bin/systemctl start rizzo",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA…start jobcaliber-start@controller
+command="sudo /usr/bin/systemctl stop rizzo",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA…stop jobcaliber-stop@controller
+command="sudo /usr/bin/systemctl poweroff",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA…poweroff jobcaliber-poweroff@controller
+```
+
+and one sudoers file, limited to exactly those commands:
+
+```bash
+echo 'stefare ALL=(root) NOPASSWD: /usr/bin/systemctl start rizzo, /usr/bin/systemctl stop rizzo, /usr/bin/systemctl poweroff' \
+  | sudo tee /etc/sudoers.d/rizzo-control
+sudo chmod 440 /etc/sudoers.d/rizzo-control && sudo visudo -c
+```
+
+**Check** from the controller: each key must reach `sudo` and stop there (`sudo: a password is
+required` means the key and the forced command work and only the rule is missing):
+
+```bash
+for k in start stop poweroff; do ssh -i ~/.ssh/host-$k -o BatchMode=yes host; done
+```
+
+### 4. The controller's configuration
+
+In `config/settings.yaml`, on the engine that lives on the other machine:
+
+```yaml
+ai:
+  engines:
+    rizzo:
+      kind: decision
+      api: systemone
+      base_url: http://10.10.0.2:8017
+      model: rizzo-latest
+      model_host:
+        address: 10.10.0.2
+        wake_on_lan: { mac: "34:5a:60:a2:87:9c", broadcast: "10.10.0.255", wait_s: 150 }
+        start_command: "ssh -i /home/stefare/.ssh/host-start -o BatchMode=yes stefare@10.10.0.2"
+        stop_command: "ssh -i /home/stefare/.ssh/host-stop -o BatchMode=yes stefare@10.10.0.2"
+        poweroff_command: "ssh -i /home/stefare/.ssh/host-poweroff -o BatchMode=yes stefare@10.10.0.2"
+```
+
+`address` is required whenever `wake_on_lan` or `poweroff_command` is set: without it the controller
+cannot tell "machine on, engine off" from "machine off", and could power off a host you are using.
+Every key is documented in [`config/README.md`](../config/README.md).
+
+### 5. Verify the split
+
+```bash
+# from the controller, with the host on and the engine stopped
+uv run jobcaliber run --limit 2 --max-queries 1
+# expect: "model host: machine already on, starting the engine", the run, then
+#         "model host: stopping the engine (the machine stays on)"
+
+# then the cold path: power the host off and run again
+ssh -i ~/.ssh/host-poweroff host
+uv run jobcaliber run --limit 2 --max-queries 1
+# expect: "model host: waking 10.10.0.2" ... and, at the end, "powering the machine off"
+```
+
+Numbers measured on a Ryzen 5 8600G + Radeon 760M (host) and an i5-8500 mini-PC (controller):
+
+| measure | value |
+|---|---|
+| wake from S5 (packet → ping answers) | **29 s** |
+| engine answering after the host is up | **4–12 s** |
+| engine latency over the cable | **21 ms** |
+| whole cold cycle (wake → fetch → score → poweroff), 1 query | **72 s** |
+
+> The cold test can only be driven **from the controller**: powering off the host kills any shell
+> that runs on it. Use a detached script (`setsid nohup sh test.sh &`) and read the log afterwards.
+
 ## Upgrading
 
 ```bash

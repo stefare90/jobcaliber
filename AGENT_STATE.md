@@ -93,14 +93,15 @@ Engines: `rizzo` (local, needs `cd ~/rizzo-flow && uv run rizzo serve --port 801
 `local_llm` (Ollama qwen3:8b), `opencode_llm` (deepseek via `/inference/go/v1` + `x-opencode-session`
 header). Default `roles: {scorer: rizzo}`.
 
-## Current data (dev DB `data/jobs.db`, gitignored)
+## Current data (production DB on the controller, gitignored)
 
-- **Reset on 2026-10-23** (the pre-reset file is in `/tmp/jobs.db.before-reset-*.db`): the first
-  clean run scored 26 postings (18 drop, 8 review) in 145 s with rizzo.
+- **1101 jobs · 2129 evaluations · 5 applications · 12 runs · `config_v 3`** (2026-10-25).
+- The workshop keeps `data/dev.db` (throwaway) and `data/jobs.pre-cutover.db` (fixture with the
+  history at the moment of the split, for calibration and benchmarks).
 - Criteria: `core_skills`, `tools`, `role_fit` (min .5 / apply .67), `pay` (apply .75),
   `location` (choice gate accept accepted/rejected/unknown), `applicable` (bool gate, `in_table:
   false`), `contract_ok` (bool gate).
-- Thresholds: notify 70, review 60, min confidence 0.55. Schedule 08:00/13:00/19:00 in
+- Thresholds: notify 70, review 60, min confidence 0.55. Schedule **06:00** (one run a day) in
   `Europe/Rome`, retries 3.
 - Search: 4 titles × `Sardinia, Italy` (on-site) + `Italy` (remote).
 
@@ -171,15 +172,18 @@ the detail page, a `status` column + `state=` filter in the list, `/applications
 - At the server: systemd units on the controller (web + worker) and `rizzo.service` on the model
   host; engine choice for the i5 if it ever becomes the model host.
 
-## Next steps (agreed, not started)
+## Next steps
 
-1. ~~LAN access~~ **done**: the unit binds `0.0.0.0`, README has "Access from your phone"
-   (mDNS `stefare-PC.local`, alias `jobcaliber.local` via `/etc/avahi/hosts`, Android caveat,
-   Tailscale option, no-auth warning). Verified: `--host 0.0.0.0` answers on `192.168.1.28:8870`.
-2. Install the systemd units (`loginctl enable-linger stefare`); port 8000 is free again.
-3. Telegram notifier with a link to the page.
-4. Calibration on real feedback (`spikes/03_calibration/calibrate.py`), then drop `review` from the
-   learning-mode default.
+1. **First unattended run**: the worker is enabled on the controller and runs at 06:00 — it wakes
+   the model host, fetches, scores, notifies and powers the host off. Watch the first night from
+   `/runs` and `journalctl --user -u jobcaliber-worker`.
+2. **Calibration on real verdicts**: the ledger gives labels (applied/will apply vs skipped).
+   Extend `spikes/03_calibration/calibrate.py` to read them from the DB, then tune
+   `min_threshold`/`apply_threshold` (and decide on `tools` and `contract_ok`, AUC ≈ 0.51/0.52).
+3. **Nightly backup** on the controller (the ledger is not reconstructible): a timer running
+   `jobcaliber db backup`, keeping N copies.
+4. **Config editor** (profile in the DB, YAML as import/export) with a diff between `config_v`
+   versions — the last real feature.
 
 ## Open questions for the user
 

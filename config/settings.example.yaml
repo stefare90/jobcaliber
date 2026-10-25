@@ -1,5 +1,7 @@
 # settings.example.yaml - the template for settings.yaml: HOW the system runs.
 # Copy to settings.yaml and edit. Changes here never re-score anything.
+# Where the database lives. On a server this is the only copy; on a development checkout point it
+# at a throwaway file (e.g. ./data/dev.db) so experiments never touch the history.
 db_path: ./data/jobs.db
 scraping:
   boards:
@@ -29,6 +31,16 @@ ai:
       api: systemone
       base_url: http://127.0.0.1:8017
       model: rizzo-latest
+
+# Optional: the engine lives on another machine that can be powered on and off (see
+# docs/INSTALL.md#split-setup-controller--model-host). Leave it out for a local engine.
+#   model_host:
+#     address: 10.10.0.2          # required when wake_on_lan or poweroff_command is set
+#     wake_on_lan: { mac: "34:5a:60:a2:87:9c", broadcast: "10.10.0.255", wait_s: 150 }
+#     start_command: "ssh -i /home/you/.ssh/host-start -o BatchMode=yes you@10.10.0.2"
+#     stop_command: "ssh -i /home/you/.ssh/host-stop -o BatchMode=yes you@10.10.0.2"
+#     poweroff_command: "ssh -i /home/you/.ssh/host-poweroff -o BatchMode=yes you@10.10.0.2"
+
     jev:
       kind: decision
       api: systemone

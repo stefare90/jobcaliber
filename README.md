@@ -193,6 +193,15 @@ Adding an engine means adding a few lines under `ai.engines` (a *product* is onl
 `model`, headers and a key). A new *wire protocol* is one file: an `AIClient` subclass registered
 with `@AIClient.register("<api>", "<kind>")`.
 
+### Two machines (optional)
+
+When the model needs better hardware than the always-on box, the web app, the worker and the
+database can live on a small **controller**, while the engine runs on a bigger **model host** that
+is powered on only for a run: the controller wakes it with a magic packet, starts the engine, and
+powers it off at the end — leaving it alone if it was already on. It needs an Ethernet port on both
+machines (Wake-on-LAN does not work over Wi-Fi) and the right BIOS option. Full procedure, with the
+numbers we measured: [`docs/INSTALL.md#split-setup-controller--model-host`](docs/INSTALL.md#split-setup-controller--model-host).
+
 ## Operating it
 
 ```bash

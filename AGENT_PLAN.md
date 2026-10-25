@@ -658,3 +658,29 @@ committing `config.yaml`.
   so it comes back after a blackout. **Not** masking `sleep.target`/`suspend.target` (rejected as
   excessive): verified on 2026-10-25 that nothing suspends it today — no idle daemon, `logind`
   `IdleAction=ignore` by default, zero suspend events in the journal.
+- [x] Split deployment, end to end (2026-10-25) — mini-PC (i5-8500, 4 cores) as the always-on
+  **controller** (web, worker, database, fetch) and the Ryzen 5 8600G as the **model host** that
+  only runs `rizzo`. Direct cable `10.10.0.1/24 ↔ 10.10.0.2/24` with **no gateway** on that link
+  (internet stays on Wi-Fi on both), `firewalld` rules per source subnet, `rizzo.service` as a
+  system unit started on demand. Wake-on-LAN needed two firmware options that are easy to miss:
+  *Resume By PCI-E Device = Enabled* and **ErP = Disabled** — without them the NIC keeps the link
+  but the machine never wakes. Measured: **wake from S5 in 29 s**, engine answering **4–12 s**
+  after the host is up, engine latency over the cable **21 ms**, whole cold cycle (wake → fetch →
+  score → poweroff) **72 s**.
+  Traps paid for once:
+  - a failing `ExecStartPost` **kills the main process** of a unit, and `systemd-run` inside a
+    system service is denied without a polkit session (`requires interactive authentication`) — a
+    watchdog needs `+-` prefixes (root, non-fatal) or it turns into an outage;
+  - `systemctl stop` leaves a unit `failed` unless `SuccessExitStatus=143` is set;
+  - one SSH key cannot offer several forced commands (`authorized_keys` applies `command=` per
+    line and sshd uses the first match) → **one key per capability**;
+  - `pkill -f <pattern>` matches the shell that runs it: it killed my own SSH session twice
+    (exit 255 looked like a network fault). Use `pgrep -f 'x[y]z'` or kill by PID.
+  Decision taken: the host contains **no jobcaliber code**, only `systemctl start|stop rizzo` and
+  `poweroff`, each behind a forced-command key and a sudoers line; the controller owns the policy
+  and leaves the host as it found it.
+- [x] Cutover to the controller (2026-10-25) — `db backup` (WAL-safe) copied to the mini: 1101 jobs
+  and 5 applications, `db check` green. The workshop keeps `data/dev.db` (throwaway) and
+  `data/jobs.pre-cutover.db` (fixture), config and `.env` are per machine and never travel, and the
+  workflow is written in `AGENTS.md` §5 ("workshop here, production there"): code through git, the
+  suite green on both machines (Python 3.14.8 here, 3.14.4 there).
