@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_status_prints_local_time_not_utc(tmp_path, capsys):
-    config_path, config = load_config(ROOT)
+    config_path, _ = load_config(ROOT)
     root = tmp_path / "root"
     (root / "data").mkdir(parents=True)
     (root / "config").mkdir()
@@ -20,6 +20,7 @@ def test_status_prints_local_time_not_utc(tmp_path, capsys):
                                                   encoding="utf-8")
     (root / "config" / "settings.yaml").write_text(
         (ROOT / "config" / "settings.example.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    _, config = load_config(root)          # the config the CLI will actually use here
     db_path = Path(config.db_path)
     store = Store(db_path if db_path.is_absolute() else root / db_path)
     run_id = store.start_run(1, "rizzo", "manual")

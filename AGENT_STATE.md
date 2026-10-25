@@ -64,6 +64,17 @@ Entry points are the only place allowed to import everything.
 9. **English only** in the repo (code, docs, UI strings, commit messages). Chat may be Italian.
 10. **Nothing is implemented before the user agrees** (`AGENTS.md` §0, absolute).
 
+## Two machines
+
+- **Workshop** = `stefare-PC` (this one): code, tests, spikes, rizzo on the iGPU. DB: `data/dev.db`.
+- **Production** = `stefare-optiplex3050` (mini-PC, 4 cores): `jobcaliber-web` on :8000, the worker,
+  and the **only** database (`data/jobs.pre-cutover.db` is the workshop's fixture).
+- Link: direct cable `10.10.0.1 ↔ 10.10.0.2`, no gateway on it (internet stays on Wi-Fi). The
+  controller wakes the host with a magic packet and controls `rizzo` over three forced SSH keys
+  (`host-start`, `host-stop`, `host-poweroff`), sudoers-limited to those commands.
+- Deploy: `git pull --ff-only && uv sync --frozen && pytest` on the controller, then restart the
+  unit. Config and `.env` are per machine and never travel.
+
 ## Commands
 
 ```bash

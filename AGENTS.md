@@ -156,7 +156,32 @@ ever call `Base.create(...)` and the interface. Fail fast on an unknown key, lis
 
 Do **not** use it for single-implementation services (`Evaluator`, `Fetcher`) or for data models.
 
-## 5. Working agreements
+## 5. Development workflow: workshop here, production there
+
+Two machines, two roles. **Code is written and tested in the workshop; production only pulls.**
+
+| | workshop (`stefare-PC`) | production (`stefare-optiplex3050`) |
+|---|---|---|
+| role | edits, tests, spikes, the model | web, worker, the **only** database |
+| Python | 3.14.8 | 3.14.4 (its own `uv`) |
+| DB | `data/dev.db`, throwaway | `data/jobs.db`, the history |
+
+- **Code travels only through git.** Never `scp` sources: two checkouts with different content are
+  a silent drift nobody notices until a run behaves differently.
+- **`config/` and `.env` never travel.** They are per machine: the controller's `settings.yaml`
+  points the engine at the model host (`base_url: http://10.10.0.2:8017` plus the `model_host`
+  block); the workshop's points at `127.0.0.1` and has no `model_host` (it would wake itself).
+- **The production database exists only on the controller.** A workshop run writes to
+  `data/dev.db`; `data/jobs.pre-cutover.db` is a fixture (1100 real postings) for calibration and
+  benchmarks, not a second source of truth.
+- Deploy = `git -C ~/Projects/jobcaliber pull --ff-only && uv sync --frozen && uv run pytest -q`
+  on the controller, then `systemctl --user restart jobcaliber-web` (and the worker when enabled).
+  The suite must be green on **both** machines: the Python patch versions differ, which is exactly
+  the kind of drift worth catching.
+- The cold path (wake a powered-off model host) can only be tested from the controller, with a
+  detached script: powering off the workshop kills the agent's own session.
+
+## 6. Working agreements
 
 - Keep the repo root tidy: personal state lives in `data/`, configuration in `config/`, docs in
   `docs/`, deployment in `deploy/`.
