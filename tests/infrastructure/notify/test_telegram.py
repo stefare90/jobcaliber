@@ -9,9 +9,10 @@ from jobcaliber.infrastructure.database.store import JobRow
 from jobcaliber.infrastructure.notify import TelegramNotifier
 
 
-def row(index: int, title: str = "Embedded Engineer", score: float = 80.0) -> JobRow:
+def row(index: int, title: str = "Embedded Engineer", score: float = 80.0,
+        decision: str = "pass") -> JobRow:
     return JobRow(id=index, evaluation_id=index, external_id=f"https://it.linkedin.com/jobs/{index}",
-                  title=title, company="Acme", source="linkedin", decision="pass",
+                  title=title, company="Acme", source="linkedin", decision=decision,
                   score_total=score)
 
 
@@ -26,9 +27,18 @@ def test_one_message_with_every_offer_and_its_ad_link():
     text = notifier(lambda request: httpx.Response(200, json={"ok": True})).build_message(
         [row(1, "Backend Dev", 82.4), row(2, "Embedded Eng", 78.1)], 7)
     assert "2 new offers" in text and "run 7" in text
+    assert "2 pass" in text                       # the header counts what was sent
     assert "Backend Dev" in text and "82.4" in text
     assert "https://it.linkedin.com/jobs/1" in text
-    assert "http://192.168.1.28:8765/jobs?decisions=pass&amp;run=7" in text
+    assert "http://192.168.1.28:8765/jobs?decisions=pass,review&amp;run=7" in text
+
+
+def test_a_review_is_labelled_and_counted_apart():
+    text = notifier(lambda request: httpx.Response(200, json={"ok": True})).build_message(
+        [row(1, "Good one", 82.0), row(2, "Borderline", 61.0, decision="review")], 7)
+    assert "1 pass · 1 review" in text
+    assert "<b>PASS</b> · <b>Good one</b>" in text
+    assert "<b>REVIEW</b> · <b>Borderline</b>" in text
 
 
 def test_a_long_list_is_truncated_and_says_how_many_are_left():

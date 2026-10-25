@@ -684,3 +684,14 @@ committing `config.yaml`.
   `data/jobs.pre-cutover.db` (fixture), config and `.env` are per machine and never travel, and the
   workflow is written in `AGENTS.md` §5 ("workshop here, production there"): code through git, the
   suite green on both machines (Python 3.14.8 here, 3.14.4 there).
+- [x] First unattended run + the two fixes it surfaced (2026-10-25). Run 13 (`schedule`, 33 min):
+  1609 rows fetched, 38 new, 38 scored (31 drop, 7 review, 0 pass), engine stopped at the end, PC
+  left on (it was already up). Two things came out of it:
+  1. **the digest now carries `review` too** (only `drop` is excluded), each line labelled with its
+     decision and the header counting pass/review: with a niche market the new offers are few, and a
+     review is exactly the "worth a look" case;
+  2. **the model host must not suspend while the engine runs**: this PC runs `hypridle` with
+     `timeout = 300 → systemctl suspend`, so an unattended run would be frozen after 5 minutes. The
+     engine unit now runs inside `systemd-inhibit --what=idle:sleep --who=rizzo-flow`, which holds
+     the lock only while the engine is alive (`hypridle` has `ignore_systemd_inhibit = false`).
+     Tests 261.

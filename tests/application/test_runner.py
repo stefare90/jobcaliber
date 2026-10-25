@@ -253,10 +253,20 @@ def test_a_successful_run_notifies_the_pass_postings(store):
     assert notified == 2
 
 
-def test_review_postings_are_not_notified(store):
+def test_a_review_is_notified_too(store):
+    """Only `drop` stays out of the digest: a review is an offer worth a look."""
     notifier = FakeNotifier()
     scorer = FakeScorer({"core_skills": 0.55, "location": "accepted"})   # below apply_threshold
-    run(make_config(), store, [posting(1)], scorer=scorer, notifier=notifier)
+    outcome = run(make_config(), store, [posting(1)], scorer=scorer, notifier=notifier)
+    assert outcome.decisions["review"] == 1
+    assert len(notifier.rows) == 1 and notifier.rows[0].decision == "review"
+
+
+def test_a_dropped_posting_is_never_notified(store):
+    notifier = FakeNotifier()
+    scorer = FakeScorer({"core_skills": 0.1, "location": "accepted"})    # below min_threshold
+    outcome = run(make_config(), store, [posting(1)], scorer=scorer, notifier=notifier)
+    assert outcome.decisions["drop"] == 1
     assert notifier.rows == []
 
 

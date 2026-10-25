@@ -25,18 +25,24 @@ class TelegramNotifier:
         """One HTML message: every pass offer with its ad link, plus a link to the filtered list."""
         limit = self.config.max_offers if max_offers is None else max_offers
         shown = rows[:limit]
+        passed = sum(1 for row in rows if row.decision == "pass")
+        reviewed = len(rows) - passed
+        counts = " · ".join(part for part in (f"{passed} pass" if passed else "",
+                                              f"{reviewed} review" if reviewed else "") if part)
         lines = [f"<b>{len(rows)} new offer{'s' if len(rows) != 1 else ''}</b>"
+                 + (f" ({counts})" if counts else "")
                  + (f" · run {run_id}" if run_id is not None else ""), ""]
         for index, row in enumerate(shown, start=1):
             score = f" · {row.score_total:.1f}" if row.score_total is not None else ""
-            lines.append(f"{index}. <b>{html.escape(row.title or '')}</b>"
+            decision = f"<b>{(row.decision or '').upper()}</b> · " if row.decision else ""
+            lines.append(f"{index}. {decision}<b>{html.escape(row.title or '')}</b>"
                          f" — {html.escape(row.company or '')}{score}")
             if str(row.external_id).startswith("http"):
                 lines.append(str(row.external_id))
             lines.append("")
         if len(rows) > len(shown):
             lines.append(f"…and {len(rows) - len(shown)} more")
-        link = f"{self.base_url.rstrip('/')}/jobs?decisions=pass"
+        link = f"{self.base_url.rstrip('/')}/jobs?decisions=pass,review"
         if run_id is not None:
             link += f"&run={run_id}"
         lines.append(f'<a href="{html.escape(link, quote=True)}">All offers of this run</a>')

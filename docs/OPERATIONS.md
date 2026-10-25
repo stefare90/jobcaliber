@@ -183,10 +183,14 @@ controller did and why:
   To keep the machine on by hand: `sudo systemctl stop rizzo-idle-watchdog.timer`.
 - **Leave the host as you found it** is enforced: if the machine was already on when the run
   started, nothing is powered off at the end (a failure in either command never fails the run).
-- The host must not sleep: on KDE, *Power Management → Energy Saving → Suspend session = Do
-  nothing* (on AC and battery), and check that `~/.config/powerdevilrc` contains
-  `[AC][SuspendAndShutdown] AutoSuspendAction=0`. A controller that suspends never sends the
-  06:00 packet.
+- **Neither machine may sleep while it is needed.** The engine unit holds
+  `systemd-inhibit --what=idle:sleep` for as long as the engine runs, so a desktop idle daemon
+  (`hypridle`, PowerDevil) cannot suspend the host in the middle of a run — the lock disappears
+  with the engine. The **controller** must never suspend at all (it is the one that sends the
+  06:00 packet): on KDE, *Power Management → Energy Saving → Suspend session = Do nothing* (AC and
+  battery), and `~/.config/powerdevilrc` must contain `[AC][SuspendAndShutdown] AutoSuspendAction=0`.
+- If you start the engine **by hand** (not through the unit), hold the same lock yourself:
+  `systemd-inhibit --what=idle:sleep --who=rizzo --why=dev uv run rizzo serve …`.
 
 ## Retention
 
@@ -233,7 +237,7 @@ alter an existing one, so a forgotten migration stops with a message instead of 
 | `schedule.timezone 'Europe/Roma' is not an IANA zone name` | the message lists valid examples | fix the value (`Europe/Rome`, `UTC`, …) |
 | `criterion 'x': set a gate or at least one threshold` | `config/profile.yaml` | every criterion needs thresholds or a gate |
 | no `pass` for days | `/jobs?decisions=review` | expected with strict thresholds: read the reviews, then lower `apply_threshold` |
-| Telegram silent although there are `pass` offers | `applications` table, `notified_at` | marked or already notified offers are not re-sent; check `enabled`, `chat_id`, the token in `.env` |
+| Telegram silent although there are new offers | `applications` table, `notified_at` | marked or already notified offers are not re-sent; check `enabled`, `chat_id`, the token in `.env` |
 | Telegram error at startup | `notifications.telegram.enabled` without `chat_id`, or the token variable empty | fix one of the two; the message says which |
 | the page is stale | the build stamp in the footer | hard-reload; responses carry `Cache-Control: no-store` |
 | `model host did not answer within Ns` | `ping <address>`, then `ssh -i ~/.ssh/host-start host` by hand | the machine did not wake (BIOS ErP/`Resume By PCI-E`), or the engine unit failed: `journalctl -u rizzo` on the host |

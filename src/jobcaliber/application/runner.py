@@ -126,10 +126,9 @@ def _collect(ctx: AppContext, fetcher, queries, stats: RunStats, dry_run: bool,
 
 
 def _notify(ctx: AppContext, notifier, run_id: int | None, progress) -> None:
-    """A digest of the new `pass` postings; a delivery problem never fails the run."""
+    """A digest of the new `pass` and `review` postings; a failure here never fails the run."""
     marked = ctx.store.applied_job_ids()
-    rows = [row for row in ctx.store.new_notifiable()
-            if row.decision == "pass" and row.id not in marked]
+    rows = [row for row in ctx.store.new_notifiable() if row.id not in marked]
     if not rows:
         return
     error = notifier.send(rows, run_id)

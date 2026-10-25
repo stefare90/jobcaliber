@@ -26,7 +26,8 @@ boards  →  fetch  →  score each offer  →  gates + thresholds  →  pass / 
   twice, and every verdict stays attributable to the version of the rules that produced it.
 - **Shows** the results in a small server-rendered web app with no JavaScript: filter by any column,
   open an offer, record what you did about it.
-- **Notifies** you on Telegram when a run finds offers worth your time.
+- **Notifies** you on Telegram when a run finds offers worth your time — everything decided
+  `pass` or `review`, with the decision marked on each line.
 
 It is **not** an auto-applier, a CV or cover-letter writer, a multi-user service, or a crawler that
 hammers the boards.

@@ -107,6 +107,7 @@ filter field in the web table on the next start.
 |---|---|
 | `base_url` | where the links inside a message point (the web app as your phone sees it) |
 | `telegram.enabled` | turns the digest on. `true` without `chat_id` fails at startup |
+| | the digest lists every new `pass` **and** `review` posting (never `drop`), with its decision and score |
 | `telegram.chat_id` | your chat with the bot (see `docs/INSTALL.md`, step 5) |
 | `telegram.token_env` | the environment variable holding the bot token (`TELEGRAM_BOT_TOKEN`) |
 | `telegram.max_offers` | how many offers the message lists before "…and N more" |
