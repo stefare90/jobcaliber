@@ -193,10 +193,12 @@ controller did and why:
   ```ini
   # ~/.config/hypr/hypridle.conf — the last listener
   timeout = 300
-  on-timeout = pgrep -f "rizzo serve" >/dev/null || systemctl suspend
+  on-timeout = systemctl is-active --quiet rizzo || systemctl suspend
   ```
 
-  `hypridle` runs listener commands through `/bin/sh -c`, so the guard works as written; restart it
+  `hypridle` runs listener commands through `/bin/sh -c`. Do **not** use a `pgrep` pattern here: the
+  shell that runs the line contains the pattern too, so `pgrep -f` always matches and the machine
+  never suspends. `is-active` asks systemd about the unit instead. Restart hypridle after the edit
   (`pkill hypridle && setsid hypridle &`, or log out and back in). On KDE (PowerDevil) there is no
   equivalent condition: choose between never suspending the host and the system-level option below.
 

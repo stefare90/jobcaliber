@@ -700,7 +700,9 @@ committing `config.yaml`.
   the worker would repeat the 30-minute fetch up to three times). `systemd-inhibit` inside the system
   unit was tried and is **not usable**: no logind session → polkit refuses the lock ("Access denied …
   requires interactive authentication") and the engine never starts. The working solution is the
-  desktop's own decision point: `on-timeout = pgrep -f "rizzo serve" >/dev/null || systemctl suspend`
-  in `hypridle.conf` (hypridle runs listener commands through `/bin/sh -c`). The polkit rule is
+  desktop's own decision point: `on-timeout = systemctl is-active --quiet rizzo || systemctl suspend`
+  in `hypridle.conf` (hypridle runs listener commands through `/bin/sh -c`). A `pgrep -f "rizzo serve"`
+  guard does **not** work: the shell running that line contains the pattern, so pgrep always
+  matches — the same self-match trap that once killed an SSH session with `pkill`. The polkit rule is
   documented as the system-level alternative. The manual "idle inhibitor" button in waybar is the
   same idea but needs a Wayland client in the session, so it cannot be driven from the controller.
