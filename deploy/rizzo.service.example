@@ -31,7 +31,7 @@ Restart=on-failure
 RestartSec=5
 TimeoutStartSec=180
 # A previous start may have left its watchdog loaded; disarm it before arming a fresh one.
-ExecStartPre=-/usr/bin/systemctl stop rizzo-idle-watchdog.timer
+ExecStartPre=-+/usr/bin/systemctl stop rizzo-idle-watchdog.timer
 # Host policy, not consumer policy: if somebody started the model for an unattended job and never
 # came back to shut the machine down, do not stay powered on forever. Override with
 # `systemctl edit rizzo`. The timer exists only while this unit runs, and dies with the shutdown.
