@@ -44,9 +44,11 @@ class SystemOneScorer(Scorer):
             question = criterion.question
             raw = data.get("answers", {}).get(key, {})
             if question.type == "score":
+                # The wire returns the expected level, which decision engines answer with an
+                # integer and OneJev with a float: keep the fraction instead of truncating it.
                 levels = max(len(question.levels) - 1, 1)
-                level = int(raw.get("score", 0))
-                if question.missing is not None and level == question.missing:
+                level = float(raw.get("score", 0) or 0)
+                if question.missing is not None and round(level) == question.missing:
                     answers[key], _ = 0.5, missing.add(key)
                 else:
                     answers[key] = self.clamp(level / levels)

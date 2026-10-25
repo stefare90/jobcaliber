@@ -140,3 +140,24 @@ def test_confidence_is_rounded_too():
     criteria = {"core_skills": Criterion(min_threshold=0.5, question=score_q())}
     result = SystemOneScorer(client, criteria).score_posting(POSTING)
     assert result.confidence == 0.67
+
+
+def test_a_fractional_expected_level_is_not_truncated():
+    """Decision engines answer an integer level; OneJev answers the expected value as a float."""
+    from jobcaliber.pipeline.scoring.scorer.system_one import SystemOneScorer
+
+    criteria = make_criteria()
+    levels = len(criteria["core_skills"].question.levels) - 1
+    fractional = systemone_client({
+        "core_skills": {"type": "score", "score": 1.5, "confidence": 0.9},
+        "salary_ok": {"type": "choice", "choice": "yes", "confidence": 0.9},
+    })
+    result = SystemOneScorer(fractional, criteria).score_posting(POSTING)
+    assert result.answers["core_skills"] == pytest.approx(round(1.5 / levels, 2))
+
+    integer = systemone_client({
+        "core_skills": {"type": "score", "score": 2, "confidence": 0.9},
+        "salary_ok": {"type": "choice", "choice": "yes", "confidence": 0.9},
+    })
+    assert SystemOneScorer(integer, criteria).score_posting(
+        POSTING).answers["core_skills"] == pytest.approx(round(2 / levels, 2))
