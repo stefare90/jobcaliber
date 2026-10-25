@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from jobcaliber.bootstrap import AppContext
 from jobcaliber.core.domain import JobPosting
 from jobcaliber.infrastructure.ai.client.base import EngineUnreachable
+from jobcaliber.infrastructure.model_host import ModelHostUnreachable
 from jobcaliber.infrastructure.database import RunStats
 from jobcaliber.pipeline.evaluation import Evaluator
 from jobcaliber.pipeline.fetch import Fetcher
@@ -43,6 +44,7 @@ def run_once(
     fetcher=None,
     scorer=None,
     notifier=None,
+    model_host=None,
     progress=print,
 ) -> RunOutcome:
     """Run one pass. `fetcher`/`scorer` are injectable so tests never touch the network."""
@@ -60,10 +62,15 @@ def run_once(
 
     outcome = RunOutcome(run_id=run_id, config_v=config_v, engine=engine_name, dry_run=dry_run)
     stats = RunStats()
+    host = model_host
     try:
         scorer = scorer or ctx.scorer(engine_name)
         if not dry_run:
-            scorer.probe()
+            host = host if host is not None else ctx.model_host(engine_name, scorer.probe)
+            if host is not None:
+                host.ensure_ready()
+            else:
+                scorer.probe()
         fetcher = fetcher or Fetcher(config.scraping, config.search)
         queries = fetcher.build_queries()
         if max_queries:
@@ -76,7 +83,7 @@ def run_once(
 
         _score(ctx, scorer, to_score, run_id, config_v, engine_name, outcome, stats, dry_run, progress)
     except Exception as exc:
-        outcome.retryable = not isinstance(exc, EngineUnreachable)
+        outcome.retryable = not isinstance(exc, (EngineUnreachable, ModelHostUnreachable))
         stats.status = "failed"
         stats.error = f"{type(exc).__name__}: {exc}"
         outcome.failed = True
@@ -87,6 +94,8 @@ def run_once(
         outcome.scored = stats.scored
         if not dry_run and run_id is not None:
             store.finish_run(run_id, stats, outcome.duration_ms)
+        if not dry_run and host is not None:
+            host.release()
     notifier = notifier or ctx.notifier
     if notifier and not dry_run and not outcome.failed:
         _notify(ctx, notifier, run_id, progress)

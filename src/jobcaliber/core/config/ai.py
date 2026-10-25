@@ -1,10 +1,12 @@
 """AI engines and roles: transports are chosen by config, never by code."""
 from __future__ import annotations
 
+import ipaddress
 import os
+import re
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 KIND_APIS = {"decision": {"systemone"}, "llm": {"openai"}}
 # Allowed engine kinds per role (a role may have several implementations).
@@ -21,6 +23,67 @@ class RetryPolicy(BaseModel):
     max_delay_s: float = 20.0
 
 
+MAC_ADDRESS = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+
+
+class WakeOnLan(BaseModel):
+    """How to power on the machine that serves this engine, from S5 or S3."""
+
+    mac: str
+    broadcast: str
+    wait_s: int = 150
+
+    @field_validator("mac")
+    @classmethod
+    def _mac(cls, value: str) -> str:
+        if not MAC_ADDRESS.match(value):
+            raise ValueError(f"mac {value!r} is not a MAC address; expected aa:bb:cc:dd:ee:ff")
+        return value.lower()
+
+    @field_validator("broadcast")
+    @classmethod
+    def _broadcast(cls, value: str) -> str:
+        try:
+            ipaddress.IPv4Address(value)
+        except ValueError:
+            raise ValueError(f"broadcast {value!r} is not an IPv4 address") from None
+        return value
+
+    @field_validator("wait_s")
+    @classmethod
+    def _wait(cls, value: int) -> int:
+        if not 5 <= value <= 900:
+            raise ValueError(f"wait_s must be within [5, 900], got {value}")
+        return value
+
+
+class ModelHost(BaseModel):
+    """The machine that serves this engine: how to bring it up and down.
+
+    The controller owns the policy (leave the host as you found it); the host only receives the
+    three elementary commands. Empty commands are allowed: a host that stays on needs none.
+    """
+
+    # The machine itself: needed to know whether it is up before deciding what to do.
+    address: str | None = None
+    ssh_port: int = 22
+    wake_on_lan: WakeOnLan | None = None
+    start_command: str | None = None
+    stop_command: str | None = None
+    poweroff_command: str | None = None
+
+    @model_validator(mode="after")
+    def _something_to_do(self) -> "ModelHost":
+        if not (self.wake_on_lan or self.start_command or self.stop_command or self.poweroff_command):
+            raise ValueError("model_host needs at least one of wake_on_lan, start_command, stop_command, poweroff_command")
+        if not self.address and (self.wake_on_lan or self.poweroff_command):
+            raise ValueError(
+                "model_host.address is required to wake or power off the host: without it the "
+                "controller cannot tell whether the machine was already on"
+            )
+        return self
+
+
 class AIEngine(BaseModel):
     kind: str
     api: str
@@ -32,6 +95,7 @@ class AIEngine(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
     throttle_s: float = 0.0
+    model_host: ModelHost | None = None
 
     @model_validator(mode="after")
     def _validate_kind_api(self) -> "AIEngine":

@@ -243,3 +243,25 @@ def test_files_left_in_the_root_are_ignored(tmp_path):
                                      .read_text(encoding="utf-8"), encoding="utf-8")
     with pytest.raises(ConfigError, match="no profile file"):
         load_config(tmp_path)
+
+
+def test_model_host_validates_its_addresses_and_needs_one_when_it_can_power_off():
+    from jobcaliber.core.config import AIEngine
+
+    def engine(**host):
+        return AIEngine(kind="decision", api="systemone", base_url="http://x", model="m",
+                        model_host=host)
+
+    good = engine(address="10.10.0.2", poweroff_command="ssh x",
+                  wake_on_lan={"mac": "34:5a:60:a2:87:9c", "broadcast": "10.10.0.255"})
+    assert good.model_host.address == "10.10.0.2"
+    assert good.model_host.wake_on_lan.wait_s == 150
+
+    with pytest.raises(ValidationError, match="is not a MAC address"):
+        engine(address="10.10.0.2", wake_on_lan={"mac": "nope", "broadcast": "10.10.0.255"})
+    with pytest.raises(ValidationError, match="is not an IPv4 address"):
+        engine(address="10.10.0.2", wake_on_lan={"mac": "34:5a:60:a2:87:9c", "broadcast": "x"})
+    with pytest.raises(ValidationError, match="address is required"):
+        engine(wake_on_lan={"mac": "34:5a:60:a2:87:9c", "broadcast": "10.10.0.255"})
+    with pytest.raises(ValidationError, match="needs at least one of"):
+        engine()

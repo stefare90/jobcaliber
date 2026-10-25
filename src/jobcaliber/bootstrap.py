@@ -9,6 +9,7 @@ from jobcaliber.core.config import AppConfig
 from jobcaliber.infrastructure.config_loader import load_config, settings_path
 from jobcaliber.application.clients import AIClients
 from jobcaliber.infrastructure.database import Store
+from jobcaliber.infrastructure.model_host import ModelHostController
 from jobcaliber.infrastructure.notify import TelegramNotifier
 
 
@@ -28,6 +29,13 @@ class AppContext:
         name = engine or self.engine
         clients = AIClients.from_config(self.config.ai, self.root)
         return clients.scorer_for(name, self.config.criteria, self.config.search.render_values())
+
+    def model_host(self, engine: str | None = None, probe=None) -> ModelHostController | None:
+        """The power/service control of the engine's machine, or None when none is configured."""
+        engine_spec = self.config.ai.engines.get(engine or self.engine)
+        if engine_spec is None or engine_spec.model_host is None:
+            return None
+        return ModelHostController(engine_spec.model_host, probe or (lambda: None))
 
 
 def _build_notifier(config: AppConfig) -> TelegramNotifier | None:

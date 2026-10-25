@@ -606,7 +606,55 @@ committing `config.yaml`.
   `jobcaliber-rizzo.service`, a rewritten `README.md`, and an accurate `AGENTS.md` (the old one
   still described `weights`, `penalties`, `query_expander` and `src/jobcaliber/models.py`). Added
   `LICENSE` (MIT) and a fuller `.env.example`.
+- [x] Sandbox benchmark: OneJev 1.6 0.8B vs the 61 labelled postings (2026-10-24). Setup: the
+  docker profile builds torch+CUDA (their images are unpublished and the `gguf` target shares the
+  base stage) → abandoned; instead `uv pip install /tmp/OneJev` in a venv plus the official
+  `llama-b11856-bin-ubuntu-vulkan-x64` `llama-server`, then `qev serve --gguf
+  mradermacher/OneJev1.6-0.8B-GGUF:Q8_0 --port 8018`; engine added as `ai.engines.onejev`.
+  **Result**: 1.31 s/offer (rizzo: 5.2 s) — fast — but the aggregate AUC 0.774 is a trap: it is
+  carried by the `location` gate (34 of the 52 `no` postings were dropped there). Per criterion
+  (maybe-vs-no AUC · missing rate): core_skills 0.65 · 45/61 missing, tools 0.51 · 40/61,
+  role_fit **0.35 inverted**, pay **0.44 inverted**. Rizzo on the same labels: core_skills 0.72 with
+  0 missing, pay 0.63, tools 0.51. Verdict: **0.8B is not usable as the scorer** — 18 of 61 postings
+  land in `review` merely because the model cannot tell, and the criteria that matter are at or
+  below chance. Side finding: the wire returns `score` as a float expected level and
+  `SystemOneScorer._parse` truncated it with `int()`; now `float()` (rounding only to detect
+  `missing`).
 - [ ] Cleanup candidate noticed during the docs pass: `ai.prompts_dir` / `ai.custom_prompts` and
   `PromptStore` look **dead** since the rubric became a projection — `prompts/` is empty and the
   scorers accept `prompts` without using it. Verify and remove (config key, loader wiring, the
   `prompts` argument of `Scorer.create`).
+- [x] **`model_host`: power and service control for the machine that runs the engine** (2026-10-25).
+  Validated end-to-end by hand on 2026-10-25 (see `spikes/04_model_host/README.md`): direct cable
+  `10.10.0.1 ↔ 10.10.0.2`, engine reachable from the controller (200 in 21 ms), **wake from S5 in
+  29 s** after enabling `Resume By PCI-E Device` + disabling ErP in the MSI B650M BIOS, ordered
+  shutdown, watchdog in `ExecStartPost` (`+-` prefixes: root, non-fatal).
+  Decision taken: the controller owns the *policy*, the host contains **no jobcaliber code** — only
+  three elementary capabilities, each a forced `command=` in the controller key:
+  `sudo systemctl start rizzo`, `sudo systemctl stop rizzo`, `sudo systemctl poweroff`
+  (plus three `NOPASSWD` lines in `/etc/sudoers.d/rizzo-control`).
+  Rule: **leave the host as you found it.**
+  | found | do | at the end |
+  |---|---|---|
+  | host off | magic packet → wait for SSH up to `wait_s` → `start` | `poweroff` |
+  | host on, engine off | `start` | `stop`, host stays on |
+  | host on, engine on | nothing | nothing |
+  Configuration per engine (`ai.engines.rizzo.model_host`): `wake_on_lan {mac, broadcast, wait_s}`,
+  `start_command`, `stop_command`, `poweroff_command`. Code: `ModelHost` (Pydantic, in
+  `core/config/ai.py`), `magic_packet()` + `ModelHostController` with `ensure_ready()` /
+  `release()` (in `infrastructure/model_host.py`, takes a `probe` callable so it stays free of the
+  scorer), wired in the runner **before** the fetch (a failed wake must not waste the fetch).
+  Tests: payload, wake only when the host is down, start/stop/poweroff only when we caused them,
+  timeout without fetch, a failing command never marking a good run as failed.
+  Residual risk, accepted: if the user logs in during a 06:00 run (~2 h), the final poweroff hits
+  the running session. Mitigations if it ever bites: start the run earlier, or add a fourth
+  read-only command (`loginctl list-sessions --no-legend`) and skip the poweroff when a session
+  is active.
+  Implementation note: the first version probed only the **engine**, which cannot tell "host on,
+  engine off" from "host off" — it would have powered off a machine someone was using. The fix is
+  `model_host.address` (required whenever the controller may wake or power off) plus a TCP probe of
+  the machine's ssh port, so the three rows of the table are distinguishable. Tests: 259.
+- [ ] **Controller hardening (BIOS only).** On the mini-PC set *Restore AC Power Loss = Power On*
+  so it comes back after a blackout. **Not** masking `sleep.target`/`suspend.target` (rejected as
+  excessive): verified on 2026-10-25 that nothing suspends it today — no idle daemon, `logind`
+  `IdleAction=ignore` by default, zero suspend events in the journal.

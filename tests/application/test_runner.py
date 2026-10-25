@@ -281,3 +281,61 @@ def test_a_marked_posting_is_not_notified(store):
     second = run(config, store, [posting(1)], engine="other", notifier=notifier)
     assert second.decisions["pass"] == 1          # scored again for the new engine
     assert notifier.rows == []                    # but not notified
+
+
+class FakeModelHost:
+    def __init__(self):
+        self.ready = 0
+        self.released = 0
+
+    def ensure_ready(self):
+        self.ready += 1
+
+    def release(self):
+        self.released += 1
+
+
+def test_the_model_host_is_made_ready_before_the_fetch(store):
+    host = FakeModelHost()
+    fetcher = FakeFetcher([posting(1)])
+    outcome = run(make_config(), store, [posting(1)], fetcher=fetcher, model_host=host)
+    assert outcome.failed is False
+    assert host.ready == 1 and host.released == 1
+    assert fetcher.calls > 0
+
+
+def test_a_failed_run_still_releases_the_host(store):
+    host = FakeModelHost()
+
+    class Boom(FakeScorer):
+        def probe(self):
+            pass
+
+        def score_posting(self, posting):
+            raise RuntimeError("scoring exploded")
+
+    outcome = run(make_config(), store, [posting(1)], scorer=Boom(), model_host=host)
+    assert outcome.failed is True
+    assert host.ready == 1 and host.released == 1
+
+
+def test_a_host_that_cannot_wake_fails_before_the_fetch(store):
+    from jobcaliber.infrastructure.model_host import ModelHostUnreachable
+
+    host = FakeModelHost()
+
+    def refuse():
+        raise ModelHostUnreachable("model host did not answer within 150s")
+
+    host.ensure_ready = refuse
+    fetcher = FakeFetcher([posting(1)])
+    outcome = run(make_config(), store, [posting(1)], fetcher=fetcher, model_host=host)
+    assert outcome.failed is True and outcome.retryable is False
+    assert fetcher.calls == 0            # nothing was fetched
+    assert host.released == 1            # and the host is still released
+
+
+def test_a_dry_run_never_touches_the_host(store):
+    host = FakeModelHost()
+    run(make_config(), store, [posting(1)], model_host=host, dry_run=True)
+    assert host.ready == 0 and host.released == 0

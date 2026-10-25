@@ -152,10 +152,13 @@ the detail page, a `status` column + `state=` filter in the list, `/applications
   location, decision, board, status, run, last seen). The empty row at the bottom is how a filter
   gets added: no JavaScript.
 
-- **Now**: application ledger (feedback becomes "applied / will apply / not interested", keyed on the
-  job, with a `/applications` page and an export).
+- **Done 2026-10-25**: `model_host` — the controller wakes the engine machine on demand, starts and
+  stops the service and powers the machine off, leaving the host as it found it (test suite 259).
+  Controller BIOS: *Restore AC Power Loss = Power On* (the only hardening wanted; masking
+  `sleep.target` was rejected).
 - Deferred: nightly backup, model calibration, live run counters, config editor + profile diff.
-- At the server: three systemd units (incl. rizzo), engine choice for the i5.
+- At the server: systemd units on the controller (web + worker) and `rizzo.service` on the model
+  host; engine choice for the i5 if it ever becomes the model host.
 
 ## Next steps (agreed, not started)
 

@@ -1,7 +1,15 @@
 """Typed configuration. Pure models only: reading a file is I/O and lives in infrastructure."""
 from __future__ import annotations
 
-from jobcaliber.core.config.ai import KIND_APIS, ROLE_KINDS, AIConfig, AIEngine, RetryPolicy
+from jobcaliber.core.config.ai import (
+    KIND_APIS,
+    ROLE_KINDS,
+    AIConfig,
+    AIEngine,
+    ModelHost,
+    RetryPolicy,
+    WakeOnLan,
+)
 from jobcaliber.core.config.app import AppConfig
 from jobcaliber.core.config.criteria import (
     BOOLEAN_OPTIONS,
@@ -26,6 +34,7 @@ __all__ = [
     "ROLE_KINDS",
     "AIConfig",
     "AIEngine",
+    "ModelHost",
     "AppConfig",
     "Criterion",
     "Evaluation",
@@ -34,6 +43,7 @@ __all__ = [
     "Notifications",
     "Question",
     "RetryPolicy",
+    "WakeOnLan",
     "Schedule",
     "Scraping",
     "Search",
