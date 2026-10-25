@@ -178,9 +178,11 @@ controller did and why:
 | `model host: stopping the engine (the machine stays on)` | the controller started it, so it stops it — the machine was already on |
 | `model host: powering the machine off` | the controller woke the machine, so it powers it off |
 
-- **The engine unit on the host arms a 3 hour `poweroff` watchdog** (`ExecStartPost`). It exists so a
-  machine started for an unattended run cannot stay on forever, and it dies with the shutdown.
-  To keep the machine on by hand: `sudo systemctl stop rizzo-idle-watchdog.timer`.
+- **The engine unit on the host arms a 3 hour `poweroff` watchdog** (`ExecStartPost`) and disarms it
+  when the engine stops (`ExecStopPost`), so the timer lives exactly as long as the engine. It exists
+  so a machine started for an unattended run cannot stay on forever. A timer left armed past the
+  stop would power the machine off under whoever was using it (a run ends after ~30 minutes, the
+  watchdog at 3 hours). To keep the machine on by hand: `sudo systemctl stop rizzo-idle-watchdog.timer`.
 - **Leave the host as you found it** is enforced: if the machine was already on when the run
   started, nothing is powered off at the end (a failure in either command never fails the run).
 - **The model host must not suspend while the engine serves.** A run takes ~30 minutes with nobody

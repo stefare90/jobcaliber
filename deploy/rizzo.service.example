@@ -41,6 +41,9 @@ ExecStartPre=-+/usr/bin/systemctl stop rizzo-idle-watchdog.timer
 # kills the main process, which is how this unit once failed to start at all.
 # `-` makes a failure non-fatal: the safety net must never prevent the engine from running.
 ExecStartPost=+-/usr/bin/systemd-run --on-active=180min --unit=rizzo-idle-watchdog /usr/bin/systemctl poweroff
+# The watchdog lives exactly as long as the engine: a normal run stops the engine long before the
+# 3 hours are up, and a timer left armed would power the machine off under whoever is using it.
+ExecStopPost=-+/usr/bin/systemctl stop rizzo-idle-watchdog.timer
 
 [Install]
 WantedBy=multi-user.target

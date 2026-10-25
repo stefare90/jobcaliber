@@ -706,3 +706,8 @@ committing `config.yaml`.
   matches — the same self-match trap that once killed an SSH session with `pkill`. The polkit rule is
   documented as the system-level alternative. The manual "idle inhibitor" button in waybar is the
   same idea but needs a Wayland client in the session, so it cannot be driven from the controller.
+- [x] Watchdog lifespan (2026-10-25): the host unit armed the 3 hour `poweroff` watchdog on start
+  but never disarmed it on stop, so a normal run (engine stopped after ~30 minutes) left a timer
+  that powered the machine off at +3 h, possibly under the user. Added
+  `ExecStopPost=-+/usr/bin/systemctl stop rizzo-idle-watchdog.timer`: the safety net now lives
+  exactly as long as the engine.
