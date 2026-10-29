@@ -105,6 +105,7 @@ class JobRow:
     first_seen_at: str | None = None
     last_seen_at: str | None = None
     notified_at: str | None = None
+    run_id: int | None = None
     run_started_at: str | None = None
     decision: str | None = None
     score_total: float | None = None
@@ -403,7 +404,7 @@ class Store:
         """Latest evaluation is pass/review and the posting was never notified."""
         query = (
             "SELECT j.*, e.id AS evaluation_id, e.decision, e.score_total, e.confidence, "
-            "e.dropped_by, r.started_at AS run_started_at "
+            "e.dropped_by, e.run_id, r.started_at AS run_started_at "
             "FROM jobs j JOIN evaluations e ON e.id = ("
             "  SELECT MAX(id) FROM evaluations e2 WHERE e2.job_id = j.id"
             ") LEFT JOIN runs r ON r.id = e.run_id "
@@ -437,7 +438,7 @@ class Store:
         limit = max(1, min(int(limit), 500))
         query = (
             "SELECT j.*, e.id AS evaluation_id, e.decision, e.score_total, e.confidence, "
-            "e.dropped_by, r.started_at AS run_started_at "
+            "e.dropped_by, e.run_id, r.started_at AS run_started_at "
             "FROM jobs j JOIN evaluations e ON e.id = "
             "(SELECT MAX(id) FROM evaluations e2 WHERE e2.job_id = j.id) "
             "LEFT JOIN runs r ON r.id = e.run_id "
@@ -584,6 +585,7 @@ class Store:
             first_seen_at=data["first_seen_at"],
             last_seen_at=data["last_seen_at"],
             notified_at=data["notified_at"],
+            run_id=data["run_id"],
             run_started_at=data["run_started_at"],
             decision=data["decision"],
             score_total=data["score_total"],

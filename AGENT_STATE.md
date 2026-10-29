@@ -173,8 +173,7 @@ fails the run. Bot `@jobcaliber_bot`, chat id in settings, token in `.env` (600,
 4. **Nightly backup** on the controller (`schedule.backup_time` is still dead config; the ledger is
    not reconstructible).
 5. **Config editor**: profile versioned in the DB, YAML import/export, diff between `config_v`.
-6. Small: `PYTHONUNBUFFERED=1` in the worker unit (journal shows only JobSpy lines); highlight the
-   failing criterion on the detail page ("why is this review?").
+6. Small: highlight the failing criterion on the detail page ("why is this review?").
 
 ## Open questions for the user
 

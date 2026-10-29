@@ -135,6 +135,14 @@ def test_new_notifiable_only_uses_the_latest_evaluation(store):
     assert [row.decision for row in notifiable] == ["review"]
 
 
+def test_new_notifiable_carries_the_run_the_evaluation_belongs_to(store):
+    v, _ = store.config_version("cfg")
+    job_id, _ = store.upsert_posting(posting())
+    run_id = store.start_run(v, "rizzo", "schedule")
+    store.save_evaluation(job_id, run_id, v, "rizzo", scored(), evaluated(GateDecision.REVIEW))
+    assert [row.run_id for row in store.new_notifiable()] == [run_id]
+
+
 def test_mark_notified_is_idempotent(store):
     v, _ = store.config_version("cfg")
     job_id, _ = store.upsert_posting(posting())

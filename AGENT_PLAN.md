@@ -720,3 +720,8 @@ committing `config.yaml`.
   unbuffered** (`Environment=PYTHONUNBUFFERED=1`) or the progress lines — including
   `telegram: not sent (<error>)` — never reach the journal. Both are now in `deploy/`, the upgrade
   section and the troubleshooting table.
+- [x] Digest link across a backlog (2026-10-29): the message always linked `?decisions=pass,review&run=<id>`
+  of the run that produced it, but a backlog digest lists offers from earlier runs, so the filter hid
+  most of what the message showed. `JobRow` now carries `run_id` and the link includes `run=` only
+  when every listed offer belongs to the same run. Also `SuccessExitStatus=143` on the worker and web
+  units, so a clean `systemctl stop`/`restart` no longer reports the unit as failed.

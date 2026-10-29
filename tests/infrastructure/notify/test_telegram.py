@@ -33,6 +33,23 @@ def test_one_message_with_every_offer_and_its_ad_link():
     assert "http://192.168.1.28:8765/jobs?decisions=pass,review&amp;run=7" in text
 
 
+def test_the_run_filter_is_dropped_when_rows_come_from_several_runs():
+    """A backlog digest spans runs: a `run=` filter would hide the offers it lists."""
+    first, second = row(1, "From run 5", 82.0), row(2, "From run 6", 61.0, decision="review")
+    first.run_id, second.run_id = 5, 6
+    text = notifier(lambda request: httpx.Response(200, json={"ok": True})).build_message(
+        [first, second], 6)
+    assert "run=" not in text
+    assert "/jobs?decisions=pass,review" in text
+
+
+def test_the_run_filter_names_the_run_the_offers_come_from():
+    only = row(1, "From run 5", 82.0)
+    only.run_id = 5
+    text = notifier(lambda request: httpx.Response(200, json={"ok": True})).build_message([only], 7)
+    assert "decisions=pass,review&amp;run=5" in text
+
+
 def test_a_review_is_labelled_and_counted_apart():
     text = notifier(lambda request: httpx.Response(200, json={"ok": True})).build_message(
         [row(1, "Good one", 82.0), row(2, "Borderline", 61.0, decision="review")], 7)

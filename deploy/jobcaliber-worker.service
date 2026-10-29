@@ -9,6 +9,8 @@ EnvironmentFile=-%h/.config/jobcaliber/env
 # stdout is a pipe here, so Python block-buffers it: progress lines ("telegram: not sent",
 # "run 7 failed") would sit in the buffer and never reach the journal.
 Environment=PYTHONUNBUFFERED=1
+# `systemctl stop` sends SIGTERM: without this the unit looks failed after a clean stop.
+SuccessExitStatus=143
 ExecStart=%h/.local/bin/uv run jobcaliber-worker
 Restart=always
 RestartSec=10

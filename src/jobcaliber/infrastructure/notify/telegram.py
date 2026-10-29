@@ -42,8 +42,11 @@ class TelegramNotifier:
             lines.append("")
         if len(rows) > len(shown):
             lines.append(f"…and {len(rows) - len(shown)} more")
+        runs = {row.run_id for row in rows if row.run_id is not None}
         link = f"{self.base_url.rstrip('/')}/jobs?decisions=pass,review"
-        if run_id is not None:
+        if len(runs) == 1:
+            link += f"&run={next(iter(runs))}"
+        elif not runs and run_id is not None:
             link += f"&run={run_id}"
         lines.append(f'<a href="{html.escape(link, quote=True)}">All offers of this run</a>')
         text = "\n".join(lines)
