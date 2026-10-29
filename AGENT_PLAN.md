@@ -736,3 +736,15 @@ committing `config.yaml`.
   `journalctl -k --since "24 hours ago" | grep -c "disconnect from AP"` (expect 0–2). If it is still
   high the steering is on the router side: separate SSIDs per band, or wire the machine. Note the
   cable path `http://10.10.0.1:8000` is immune to this and answered 200 in 27 ms.
+- [x] "The server is intermittently unreachable" (2026-10-29) — measured, and it was **the client**.
+  With a 2 s sampler on the controller (`rssi`, ping to the router, ping to the phone, local `GET /jobs`)
+  **49/49 samples returned 200** and the router answered in 1–8 ms, while the phone answered 100%
+  lost and the web log showed the phone's requests served with `200 OK` in the same minutes: the
+  Moto G84 leaves the Wi-Fi (assistant switching to mobile data / MAC randomization / its own
+  roaming) and comes back. The mini's own leg is weak but healthy (-75 dBm, 0% loss on small
+  packets, `missed_beacons` warnings). Two side findings worth keeping: the **Wi-Fi band steering**
+  on the router made the controller roam 77 times in 5 days (fixed by disabling powersave and
+  pinning the BSSID — 0 roams since), and the **direct cable PC↔controller flaps every ~5 minutes**
+  for 3–5 s with EEE active on the `r8169` of the controller (fix: `ethtool --set-eee <if> eee off`
+  on both sides, not yet applied). Method to reuse: when a client "cannot reach the server", sample
+  from the server side and compare its own leg with the client's, instead of trusting the symptom.
