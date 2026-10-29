@@ -8,6 +8,9 @@ After=network.target
 Type=simple
 WorkingDirectory=%h/Projects/jobcaliber
 EnvironmentFile=-%h/.config/jobcaliber/env
+# stdout is a pipe here, so Python block-buffers it: progress lines ("telegram: not sent",
+# "run 7 failed") would sit in the buffer and never reach the journal.
+Environment=PYTHONUNBUFFERED=1
 ExecStart=%h/.local/bin/uv run uvicorn jobcaliber.entrypoints.web:create_app --factory --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5

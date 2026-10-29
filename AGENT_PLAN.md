@@ -711,3 +711,12 @@ committing `config.yaml`.
   that powered the machine off at +3 h, possibly under the user. Added
   `ExecStopPost=-+/usr/bin/systemctl stop rizzo-idle-watchdog.timer`: the safety net now lives
   exactly as long as the engine.
+- [x] Missing Telegram digests (2026-10-29): runs were ok and produced `review` offers, but no
+  message arrived. The bot, token and chat were fine (`getMe`/`sendMessage` green). Cause: the
+  worker process had been running since 2026-10-25 17:45, while the digest fix (pass **and** review)
+  landed at 18:34 — 49 minutes later — and the unit was never restarted, so `_notify` still filtered
+  `decision == "pass"` and returned silently (every run since produced 0 pass). Two lessons:
+  **a deploy must restart the unit** (Python keeps the code it loaded) and **stdout must be
+  unbuffered** (`Environment=PYTHONUNBUFFERED=1`) or the progress lines — including
+  `telegram: not sent (<error>)` — never reach the journal. Both are now in `deploy/`, the upgrade
+  section and the troubleshooting table.

@@ -247,12 +247,23 @@ systemctl --user restart jobcaliber-web jobcaliber-worker
 A schema change is never applied by a process: `Store` creates an empty database but refuses to
 alter an existing one, so a forgotten migration stops with a message instead of corrupting data.
 
+**The restart is not optional.** Python keeps the code it loaded at start, so a unit left running
+serves the previous version: a digest fix sat deployed but inactive for four days because the worker
+had not been restarted. To tell a running unit from the checkout:
+
+```bash
+systemctl --user show jobcaliber-worker -p ActiveEnterTimestamp   # when the process started
+git log -1 --format=%ci                                            # when the code landed
+```
+
 ## Troubleshooting
 
 | Symptom | Check | Fix |
 |---|---|---|
 | the worker does nothing | `jobcaliber status`, then `SELECT * FROM runs ORDER BY id DESC LIMIT 5` | nothing is due: the next `scrape_times` slot will fire; a run can be queued from `/runs` |
 | a run fails in milliseconds with `EngineUnreachable` | `curl <engine base_url>` | start the engine (`sudo systemctl start rizzo` on the model host) |
+| no Telegram message although the run found offers | `journalctl --user -u jobcaliber-worker | grep telegram` (needs `PYTHONUNBUFFERED=1`) | the digest carries only `pass`+`review` that are not marked; a run with none of them sends nothing |
+| the behaviour did not change after an upgrade | `systemctl --user show jobcaliber-worker -p ActiveEnterTimestamp` vs `git log -1 --format=%ci` | `systemctl --user restart jobcaliber-web jobcaliber-worker`: a running process keeps its old code |
 | `SchemaMismatch` on start | `jobcaliber db version` vs the version in the message | `jobcaliber db migrate` |
 | `no profile file found in …/config` | `ls config/` | copy the two examples (step 3 of the install) |
 | `schedule.timezone 'Europe/Roma' is not an IANA zone name` | the message lists valid examples | fix the value (`Europe/Rome`, `UTC`, …) |

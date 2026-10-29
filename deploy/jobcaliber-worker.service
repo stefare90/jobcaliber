@@ -6,6 +6,9 @@ After=network.target
 Type=simple
 WorkingDirectory=%h/Projects/jobcaliber
 EnvironmentFile=-%h/.config/jobcaliber/env
+# stdout is a pipe here, so Python block-buffers it: progress lines ("telegram: not sent",
+# "run 7 failed") would sit in the buffer and never reach the journal.
+Environment=PYTHONUNBUFFERED=1
 ExecStart=%h/.local/bin/uv run jobcaliber-worker
 Restart=always
 RestartSec=10
