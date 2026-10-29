@@ -725,3 +725,14 @@ committing `config.yaml`.
   most of what the message showed. `JobRow` now carries `run_id` and the link includes `run=` only
   when every listed offer belongs to the same run. Also `SuccessExitStatus=143` on the worker and web
   units, so a clean `systemctl stop`/`restart` no longer reports the unit as failed.
+- [x] Intermittent unreachable web on the controller (2026-10-29): the web itself never stopped
+  (`NRestarts=0`, uptime 3d17h) — the **Wi-Fi** did. `iwlwifi` on `wlan0` associated with the
+  2.4 GHz BSSID (`…:b4:23`, ch1, signal ~48) and roamed to the 5 GHz one (`…:b4:24`, signal 12)
+  and back: **77 associations in 5 days**, hourly at :24–:27, plus flapping bursts of 3–4 minutes
+  (02:12–02:15, 07:10–07:14), with `missed_beacons exceeds threshold` from the driver. Each roam is
+  a few seconds off the LAN. Fix: `802-11-wireless.powersave 2` (disable) and a pinned
+  `802-11-wireless.bssid` to the 2.4 GHz radio, applied 2026-10-29 11:4x. Baseline at the change:
+  **38** `disconnect from AP` in the journal, 0 in the 30 minutes after. Verify after 24 h with
+  `journalctl -k --since "24 hours ago" | grep -c "disconnect from AP"` (expect 0–2). If it is still
+  high the steering is on the router side: separate SSIDs per band, or wire the machine. Note the
+  cable path `http://10.10.0.1:8000` is immune to this and answered 200 in 27 ms.
