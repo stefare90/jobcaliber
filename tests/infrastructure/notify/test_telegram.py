@@ -41,6 +41,7 @@ def test_the_run_filter_is_dropped_when_rows_come_from_several_runs():
         [first, second], 6)
     assert "run=" not in text
     assert "/jobs?decisions=pass,review" in text
+    assert ">All new offers</a>" in text
 
 
 def test_the_run_filter_names_the_run_the_offers_come_from():
@@ -48,6 +49,7 @@ def test_the_run_filter_names_the_run_the_offers_come_from():
     only.run_id = 5
     text = notifier(lambda request: httpx.Response(200, json={"ok": True})).build_message([only], 7)
     assert "decisions=pass,review&amp;run=5" in text
+    assert ">All offers of this run</a>" in text
 
 
 def test_a_review_is_labelled_and_counted_apart():

@@ -44,11 +44,14 @@ class TelegramNotifier:
             lines.append(f"…and {len(rows) - len(shown)} more")
         runs = {row.run_id for row in rows if row.run_id is not None}
         link = f"{self.base_url.rstrip('/')}/jobs?decisions=pass,review"
+        label = "All new offers"
         if len(runs) == 1:
             link += f"&run={next(iter(runs))}"
+            label = "All offers of this run"
         elif not runs and run_id is not None:
             link += f"&run={run_id}"
-        lines.append(f'<a href="{html.escape(link, quote=True)}">All offers of this run</a>')
+            label = "All offers of this run"
+        lines.append(f'<a href="{html.escape(link, quote=True)}">{label}</a>')
         text = "\n".join(lines)
         while len(text) > MAX_MESSAGE_CHARS and len(shown) > 1:
             text = self.build_message(shown[:-1], run_id, max_offers=len(shown) - 1)
