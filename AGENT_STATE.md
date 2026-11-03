@@ -86,6 +86,11 @@ may import everything.
   use `systemd-inhibit` (a system service has no logind session → polkit denies → the engine never
   starts). The guard is in `~/.config/hypr/hypridle.conf`:
   `on-timeout = systemctl is-active --quiet rizzo || systemctl suspend`.
+- The controller is a **Wi-Fi client** of the home router (~-80 dBm, marginal). NetworkManager treats a
+  timed-out association (`no-secrets`) as a permanent failure and stops retrying, which once left the
+  machine off the LAN for 25 hours: `deploy/jobcaliber-wifi-watchdog.timer` (every 3 minutes) brings the
+  profile back and logs to `journalctl -t jobcaliber-wifi-watchdog`. The cable path
+  `http://10.10.0.1:8000` stays reachable even when the Wi-Fi is down.
 - Deploy: `git pull --ff-only && uv sync --frozen && uv run pytest -q` on the controller, then
   `systemctl --user restart jobcaliber-web` (and the worker when enabled). Green on **both** machines.
 
