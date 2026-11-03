@@ -1,0 +1,11 @@
+#!/bin/sh
+# NetworkManager treats a failed association ("no-secrets") as permanent and stops retrying, so a
+# marginal Wi-Fi link can leave the machine off the LAN for hours. This brings the connection back.
+IFACE=${1:-wlan0}
+case "$(nmcli -t -f GENERAL.STATE dev show "$IFACE" | cut -d: -f2)" in
+    *connected*) exit 0 ;;
+esac
+CON=$(nmcli -t -f NAME,TYPE con show | awk -F: '$2=="802-11-wireless"{print $1; exit}')
+[ -n "$CON" ] || { logger -t jobcaliber-wifi-watchdog "no Wi-Fi connection profile"; exit 1; }
+logger -t jobcaliber-wifi-watchdog "$IFACE is down, bringing '$CON' up"
+nmcli con up "$CON" >/dev/null 2>&1 || logger -t jobcaliber-wifi-watchdog "reconnect failed"

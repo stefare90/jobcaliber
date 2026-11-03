@@ -748,3 +748,11 @@ committing `config.yaml`.
   for 3–5 s with EEE active on the `r8169` of the controller (fix: `ethtool --set-eee <if> eee off`
   on both sides, not yet applied). Method to reuse: when a client "cannot reach the server", sample
   from the server side and compare its own leg with the client's, instead of trusting the symptom.
+- [x] The controller left the LAN for 25 hours (2026-11-02 09:03 → 2026-11-03): the Wi-Fi association
+  timed out (`Activation: (wifi) association took too long`, signal -78 dBm) and NetworkManager
+  classified the failure as `reason 'no-secrets'` — a **permanent** failure class: it did not retry
+  once in 25 hours, and `connection.autoconnect-retries 0` does not change that. The web process was
+  healthy the whole time and answered on the cable. Mitigation: `deploy/jobcaliber-wifi-watchdog`
+  (a 3-minute systemd timer that brings the profile up when `wlan0` is not connected). The root cause
+  stays the marginal RF link: the access point is visible at -78 dBm and hops channels (1 → 8), so
+  the real fix is a cable or moving the machine closer.

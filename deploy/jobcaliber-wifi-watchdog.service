@@ -1,0 +1,7 @@
+[Unit]
+Description=Bring the Wi-Fi back when NetworkManager gave up
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/jobcaliber-wifi-watchdog
