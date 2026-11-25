@@ -1,3 +1,4 @@
+import json
 import re
 
 import pytest
@@ -96,6 +97,38 @@ def test_llm_example_uses_the_real_keys():
     assert '"core_skills"' in example and '"salary_ok"' in example and '"missing"' in example
 
 
+def test_llm_prompt_reads_the_criteria_before_the_posting():
+    """The instructions must come first: the description is long and the rules get lost after it."""
+    _, user = build_llm_prompt(eight_criteria())
+    assert user.index("Criteria (every key") < user.index("Job posting:")
+    assert user.index("Job posting:") < user.index('"core_skills"')
+
+
+def test_llm_score_criteria_ask_for_a_level_number():
+    _, user = build_llm_prompt(one_criterion())
+    assert "0 = Not stated" in user and "3 = Perfect" in user
+    assert "answer with the number of the level" in user
+
+
+def test_llm_example_uses_a_level_number_for_scores():
+    _, user = build_llm_prompt(one_criterion())
+    example = json.loads(user.strip().splitlines()[-1])
+    assert example["core_skills"] == 0
+
+
+def test_llm_prompt_turns_the_exclusions_into_a_list():
+    from jobcaliber.core.config import Search
+
+    values = Search(titles=["Software Engineer"], on_site_locations=["Sardinia, Italy"],
+                    exclude=["tirocini", "categorie protette"]).render_values()
+    criteria = {"applicable": Criterion(question=Question(
+        type="choice", instructions="exclusions: {{search.exclude}}?",
+        options={"yes": "yes", "no": "no", "missing": "missing"}, missing="missing"))}
+    _, user = build_llm_prompt(criteria, values)
+    assert "    - tirocini\n    - categorie protette" in user
+    assert "{{search." not in user
+
+
 def test_llm_choice_keys_are_listed_as_options():
     _, user = build_llm_prompt({"salary_ok": Criterion(gate=True, question=choice_q())})
     assert "one of: yes | no | missing" in user
@@ -146,10 +179,11 @@ def test_search_render_values_expose_titles_and_locations():
         remote_locations=["Italy"],
         exclude=["tirocini"],
     ).render_values()
-    assert values == {
-        "search.titles": "A, B",
-        "search.on_site_locations": "Sardinia, Italy",
-        "search.remote_locations": "Italy",
-        "search.exclude": "tirocini",
-    }
-    assert Search(titles=["A"]).render_values()["search.exclude"] == "none"
+    assert values["search.titles"] == "A, B"
+    assert values["search.on_site_locations"] == "Sardinia, Italy"
+    assert values["search.remote_locations"] == "Italy"
+    assert values["search.exclude"] == "tirocini"
+    assert values["search.exclude_bullets"] == "    - tirocini"
+    empty = Search(titles=["A"]).render_values()
+    assert empty["search.exclude"] == "none"
+    assert "search.exclude_bullets" not in empty

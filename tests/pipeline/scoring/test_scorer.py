@@ -92,6 +92,57 @@ def test_llm_scorer_parses_keys_and_missing_list():
     assert "Embedded Engineer" in capture["messages"][-1]["content"]
 
 
+def llm_client_sequence(contents: list[str], calls: list[dict]) -> LLMClient:
+    responses = iter(contents)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": next(responses)}}]})
+
+    return LLMClient(
+        AIEngine(kind="llm", api="openai", base_url="http://mock/v1", model="m"),
+        httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+
+def test_llm_level_number_becomes_the_fraction_a_decision_engine_reports():
+    """Five levels (0-4): level 3 is the same 0.75 a decision engine answers for that level."""
+    content = json.dumps({"core_skills": 3, "tools": 2, "salary_ok": "yes", "missing": [],
+                          "confidence": 0.9})
+    result = LLMScorer(llm_client(content, {}), make_criteria()).score_posting(POSTING)
+    assert result.answers["core_skills"] == pytest.approx(0.75)
+    assert result.answers["tools"] == pytest.approx(0.5)
+
+
+def test_llm_answer_with_a_label_outside_the_options_is_asked_again():
+    first = json.dumps({"core_skills": 1, "tools": 2, "salary_ok": "maybe", "missing": []})
+    second = json.dumps({"core_skills": 1, "tools": 2, "salary_ok": "no", "missing": []})
+    calls: list[dict] = []
+    result = LLMScorer(llm_client_sequence([first, second], calls), make_criteria()).score_posting(POSTING)
+    assert result.answers["salary_ok"] == "no"
+    assert len(calls) == 2
+    assert "rejected" in calls[1]["messages"][-1]["content"]
+    assert "maybe" in calls[1]["messages"][-1]["content"]
+
+
+def test_llm_answer_that_stays_invalid_becomes_missing_and_never_drops():
+    bad = json.dumps({"core_skills": 1, "tools": 2, "salary_ok": "maybe", "missing": []})
+    calls: list[dict] = []
+    result = LLMScorer(llm_client_sequence([bad, bad], calls), make_criteria()).score_posting(POSTING)
+    assert "salary_ok" in result.missing
+    assert result.answers["salary_ok"] == "missing"
+    assert len(calls) == 2
+
+
+def test_llm_answer_without_a_key_is_asked_again():
+    first = json.dumps({"core_skills": 1, "salary_ok": "yes", "missing": []})
+    second = json.dumps({"core_skills": 1, "tools": 2, "salary_ok": "yes", "missing": []})
+    calls: list[dict] = []
+    result = LLMScorer(llm_client_sequence([first, second], calls), make_criteria()).score_posting(POSTING)
+    assert result.answers["tools"] == pytest.approx(0.5)
+    assert "tools" in calls[1]["messages"][-1]["content"]
+
+
 def test_scorer_registry_dispatches_by_engine_kind():
     assert set(Scorer._registry) == {"decision", "llm"}
     assert Scorer._registry["decision"] is SystemOneScorer

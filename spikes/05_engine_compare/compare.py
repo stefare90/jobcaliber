@@ -62,13 +62,16 @@ def main() -> int:
     parser.add_argument("--candidate", default="opencode_llm")
     parser.add_argument("--baseline", default="rizzo")
     parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--ids", default="", help="comma separated job ids: re-use a fixed sample")
     args = parser.parse_args()
 
     ctx = build_context(pathlib.Path(args.root))
     evaluator = Evaluator(ctx.config)
     scorer = ctx.scorer(args.candidate)
 
-    ids = sample_ids(ctx, args.baseline, args.limit)
+    ids = [int(part) for part in args.ids.split(",") if part.strip()] or \
+        sample_ids(ctx, args.baseline, args.limit)
+    print("ids: " + ",".join(str(job_id) for job_id in ids))
     print(f"{len(ids)} postings · baseline {args.baseline} vs candidate {args.candidate}\n")
 
     latencies: list[float] = []
