@@ -15,17 +15,12 @@ class Search(BaseModel):
 
     def render_values(self) -> dict[str, str]:
         """Placeholders available to every criterion question (`{{search.*}}`)."""
-        values = {
+        return {
             "search.titles": ", ".join(self.titles),
             "search.on_site_locations": ", ".join(self.on_site_locations),
             "search.remote_locations": ", ".join(self.remote_locations),
             "search.exclude": "; ".join(self.exclude) or "none",
         }
-        if self.exclude:
-            # A chat model reads a bulleted list far better than one long joined line; the
-            # decision wire keeps the joined form.
-            values["search.exclude_bullets"] = "\n".join(f"    - {entry}" for entry in self.exclude)
-        return values
 
 
 def validate_search(search: Search) -> None:

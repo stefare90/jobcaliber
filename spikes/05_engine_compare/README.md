@@ -57,4 +57,5 @@ the rule. Only "supports up to 100% remote working" (Platform Engineer) was a ge
 The disagreement is mostly **a spec question, not a model question**: what to do with hybrid and
 flexible-remote offers outside Sardinia. Fix the rule first (state explicitly whether hybrid counts),
 then re-measure. Prompt engineering is not the lever here; model variance and the 3x latency are.
-Not switched: rizzo stays the production scorer.
+Not switched: rizzo stays the production scorer, and the prompt/scorer rewrite was **reverted** —
+it changed no decision on the sample, so keeping it would have been drift without a benefit.
